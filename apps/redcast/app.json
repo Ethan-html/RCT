@@ -1,0 +1,18 @@
+{
+  "id": "redcast",
+  "name": "Redcast",
+  "minLauncher": "0.1.0",
+  "type": "electron",
+  "main": "main.js",
+  "icon": "assets/icons/redcast.ico",
+  "appUserModelId": "com.red.redcast",
+  "setup": {
+    "script": "setup.ps1",
+    "args": [
+      "-FfmpegOnly"
+    ],
+    "requires": [
+      "bin/ffmpeg.exe"
+    ]
+  }
+}

@@ -1,0 +1,39 @@
+# Dependencies and build output
+node_modules/
+dist/
+build/
+backend-dist/
+*.spec
+
+# Downloaded at setup, never commit
+apps/redcast/bin/
+apps/redcast/runtime/
+
+# Python
+__pycache__/
+*.pyc
+.venv/
+venv/
+
+# Local data: camera passwords, YouTube sign-in, recordings
+settings.json
+presets.json
+presets/
+recordings/
+*.log
+.env
+
+# OS junk
+Thumbs.db
+.DS_Store
+
+# Launcher build output and release zips (upload those to GitHub Releases instead)
+launcher/dist/
+release/
+
+# Local testing (START-LOCAL.bat): test data and installed test apps
+.local-data/
+
+# Any node_modules anywhere, any npm debug logs
+node_modules/
+npm-debug.log*

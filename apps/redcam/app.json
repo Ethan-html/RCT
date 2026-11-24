@@ -1,0 +1,15 @@
+{
+  "id": "redcam",
+  "name": "Redcam",
+  "minLauncher": "0.1.0",
+  "type": "backend-window",
+  "icon": "icon.ico",
+  "appUserModelId": "com.red.redcam",
+  "dataFolder": "Redcam",
+  "backend": {
+    "exe": "backend/ptz-backend.exe",
+    "port": 8080,
+    "portEnv": "PORT",
+    "dataDirEnv": "PTZ_DATA_DIR"
+  }
+}

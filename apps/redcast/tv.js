@@ -1,0 +1,53 @@
+// TV output window: test pattern, black, text, or the live picture sent from the Display window.
+let state = { mode: 'black', text: '', mute: false }; // black until told what to show, never the test page
+const pattern = document.getElementById('pattern');
+const textEl = document.getElementById('text');
+const vid = document.getElementById('vid');
+
+function render() {
+  pattern.hidden = state.mode !== 'pattern';
+  textEl.hidden = state.mode !== 'text';
+  vid.hidden = state.mode !== 'stream';
+  vid.muted = !!state.mute; // some screens have speakers tied to the sound board
+  textEl.textContent = state.text || '';
+  document.getElementById('info').textContent = `TV OUTPUT OK - ${window.innerWidth} x ${window.innerHeight}`;
+}
+window.api.on('tv:state', (s) => { state = s; render(); });
+window.addEventListener('resize', render);
+
+// ----- picture link from the operator window (local, never leaves this PC) -----
+let pc = null;
+let queue = Promise.resolve();
+const sig = (m) => window.api.rtcSignal(m);
+function closeLink() { if (pc) { try { pc.close(); } catch (e) { /* ignore */ } pc = null; } vid.srcObject = null; }
+async function handle(m) {
+  if (m.type === 'offer') {
+    closeLink();
+    pc = new RTCPeerConnection({ iceServers: [] });
+    pc.onicecandidate = (e) => { if (e.candidate) sig({ type: 'ice', candidate: e.candidate.toJSON() }); };
+    pc.ontrack = (e) => { vid.srcObject = e.streams[0] || new MediaStream([e.track]); vid.play().catch(() => {}); };
+    await pc.setRemoteDescription({ type: 'offer', sdp: m.sdp });
+    const a = await pc.createAnswer();
+    await pc.setLocalDescription(a);
+    sig({ type: 'answer', sdp: a.sdp });
+  } else if (m.type === 'ice' && pc) {
+    await pc.addIceCandidate(m.candidate);
+  } else if (m.type === 'close') {
+    closeLink();
+  }
+}
+window.api.on('rtc:signal', (m) => { queue = queue.then(() => handle(m)).catch((e) => console.error('TV link', e)); });
+sig({ type: 'ready' });
+
+function tick(now) {
+  requestAnimationFrame(tick);
+  if (state.mode !== 'pattern') return;
+  const d = new Date();
+  document.getElementById('clock').textContent =
+    d.toLocaleTimeString([], { hour12: false }) + '.' + String(d.getMilliseconds()).padStart(3, '0');
+  const pos = (now / 2500) % 2;               // sweeps left to right and back every 5 seconds
+  const x = pos < 1 ? pos : 2 - pos;
+  document.getElementById('sweep').style.left = (x * 94) + '%';
+}
+requestAnimationFrame(tick);
+render();

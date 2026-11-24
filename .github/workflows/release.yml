@@ -1,0 +1,137 @@
+# Builds and publishes a release. Two ways to start it:
+#   1) GitHub > Actions > "Release" > Run workflow   (picks the app, bumps the number, builds, publishes)
+#   2) Pushing a tag like redcast-v0.2.0              (RELEASE.bat does this for you)
+# Full instructions: docs/RELEASING.md
+name: Release
+
+on:
+  workflow_dispatch:
+    inputs:
+      app:
+        description: What are you releasing?
+        type: choice
+        required: true
+        options: [redcast, redcam, launcher]
+      bump:
+        description: Size of change (patch = small fix, minor = new feature, major = big change, same = publish the number as it is, for the very first release)
+        type: choice
+        required: true
+        default: patch
+        options: [patch, minor, major, same]
+      min_launcher:
+        description: "Apps only, optional: oldest launcher this version works with, like 0.2.0. Empty = keep the current setting."
+        type: string
+        required: false
+      notes:
+        description: What changed? (optional, shown on the release page)
+        type: string
+        required: false
+  push:
+    tags:
+      - 'redcast-v*'
+      - 'redcam-v*'
+      - 'launcher-v*'
+
+permissions:
+  contents: write
+
+concurrency:
+  group: release
+  cancel-in-progress: false
+
+jobs:
+  release:
+    runs-on: windows-latest
+    defaults:
+      run:
+        shell: bash
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+
+      - name: Work out the version
+        id: v
+        env:
+          EVENT: ${{ github.event_name }}
+          IN_APP: ${{ inputs.app }}
+          IN_BUMP: ${{ inputs.bump }}
+          IN_MIN: ${{ inputs.min_launcher }}
+          RELEASE_NOTES: ${{ inputs.notes }}
+        run: |
+          if [ "$EVENT" = "workflow_dispatch" ]; then
+            if [ -n "$IN_MIN" ]; then
+              node tools/release.js "$IN_APP" "$IN_BUMP" --min-launcher "$IN_MIN" --no-git
+            else
+              node tools/release.js "$IN_APP" "$IN_BUMP" --no-git
+            fi
+          else
+            node tools/release.js --from-tag "$GITHUB_REF_NAME"
+          fi
+
+      - name: Install tools
+        run: cd launcher && npm install --no-audit --no-fund
+
+      # ---------- Red Launcher: the installer people run on each PC ----------
+      - name: Build the launcher installer
+        if: steps.v.outputs.app == 'launcher'
+        run: |
+          cd launcher
+          # The launcher learns where to look for updates from the repo it was built in. Nothing to edit by hand.
+          node -e "require('fs').writeFileSync('launcher.config.json', JSON.stringify({ repo: process.env.GITHUB_REPOSITORY }, null, 2))"
+          npm run dist
+
+      # ---------- Redcast: just zip the source ----------
+      - name: Package Redcast
+        if: steps.v.outputs.app == 'redcast'
+        run: node tools/package-app.js redcast
+
+      # ---------- Redcam: build the Python backend, then zip ----------
+      - uses: actions/setup-python@v5
+        if: steps.v.outputs.app == 'redcam'
+        with:
+          python-version: '3.12'
+      - name: Package Redcam
+        if: steps.v.outputs.app == 'redcam'
+        run: |
+          cd apps/redcam
+          python -m pip install --upgrade pip
+          python -m pip install -r requirements.txt pyinstaller
+          python -m PyInstaller --noconfirm --clean --onedir --name ptz-backend --distpath backend-dist --workpath build --icon icon.ico --add-data "index.html;." --add-data "icon.ico;." --hidden-import keyboard._winkeyboard app.py
+          cd ../..
+          node tools/package-app.js redcam
+
+      # Only after the build worked: save the new number and tag it (so a failed build leaves nothing behind).
+      - name: Save the new version number
+        if: github.event_name == 'workflow_dispatch'
+        env:
+          FILES: ${{ steps.v.outputs.files }}
+          TAG: ${{ steps.v.outputs.tag }}
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add $FILES
+          git diff --cached --quiet || git commit -m "Release $TAG"
+          git tag "$TAG"
+          git push origin HEAD "$TAG"
+
+      - name: Find the file to upload
+        id: asset
+        env:
+          APP: ${{ steps.v.outputs.app }}
+        run: |
+          if [ "$APP" = "launcher" ]; then f=$(ls launcher/dist/Red-Launcher-Setup-*.exe); else f=$(ls release/$APP-*.zip); fi
+          echo "Uploading: $f"
+          echo "file=$f" >> "$GITHUB_OUTPUT"
+
+      - name: Publish the release
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: ${{ steps.v.outputs.tag }}
+          name: ${{ steps.v.outputs.app }} ${{ steps.v.outputs.version }}
+          body_path: release/notes.md
+          files: ${{ steps.asset.outputs.file }}

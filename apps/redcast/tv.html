@@ -1,0 +1,35 @@
+<!doctype html>
+<html>
+<head>
+<meta charset="utf-8">
+<title>External display</title>
+<meta http-equiv="Content-Security-Policy" content="default-src 'self'; style-src 'self' 'unsafe-inline'; media-src 'self' blob:">
+<style>
+  html, body { margin: 0; width: 100%; height: 100%; background: #000; overflow: hidden; cursor: none; color: #fff; font-family: "Segoe UI", Arial, sans-serif; }
+  #pattern { position: absolute; inset: 0; }
+  #bars { position: absolute; left: 0; right: 0; top: 0; height: 55%;
+    background: linear-gradient(90deg, #fff 0 14.28%, #ff0 0 28.56%, #0ff 0 42.84%, #0f0 0 57.12%, #f0f 0 71.4%, #f00 0 85.68%, #00f 0); }
+  #ramp { position: absolute; left: 0; right: 0; top: 55%; height: 10%; background: linear-gradient(90deg, #000, #fff); }
+  #info { position: absolute; left: 0; right: 0; top: 66%; text-align: center; font-size: 5vh; }
+  #clock { font: bold 9vh Consolas, monospace; text-align: center; position: absolute; left: 0; right: 0; top: 74%; }
+  #sweepTrack { position: absolute; left: 0; right: 0; bottom: 4%; height: 6%; background: #222; }
+  #sweep { position: absolute; top: 0; bottom: 0; width: 6%; background: #f5b800; }
+  .corner { position: absolute; width: 4vh; height: 4vh; background: #f00; }
+  #text { position: absolute; inset: 0; display: flex; align-items: center; justify-content: center; font-size: 12vh; text-align: center; padding: 5%; }
+  #vid { position: absolute; inset: 0; width: 100%; height: 100%; object-fit: contain; background: #000; }
+  [hidden] { display: none !important; }
+</style>
+</head>
+<body>
+<div id="pattern">
+  <div id="bars"></div><div id="ramp"></div>
+  <div id="info"></div><div id="clock"></div>
+  <div id="sweepTrack"><div id="sweep"></div></div>
+  <div class="corner" style="left:0;top:0"></div><div class="corner" style="right:0;top:0"></div>
+  <div class="corner" style="left:0;bottom:0"></div><div class="corner" style="right:0;bottom:0"></div>
+</div>
+<div id="text" hidden></div>
+<video id="vid" autoplay playsinline hidden></video>
+<script src="tv.js"></script>
+</body>
+</html>

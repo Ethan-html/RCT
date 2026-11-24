@@ -1,0 +1,4 @@
+[
+  { "id": "redcast", "name": "Redcast", "glyph": "live", "description": "Broadcaster: cameras, lower thirds, Bible verses, streaming." },
+  { "id": "redcam",  "name": "Redcam",  "glyph": "cam",  "description": "PTZ camera control with presets for every spot on the platform." }
+]

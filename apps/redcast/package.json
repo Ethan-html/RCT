@@ -1,0 +1,13 @@
+{
+  "name": "redcast",
+  "version": "0.1.0",
+  "description": "Redcast: camera, lower thirds, Bible verses, video, external screens and streaming for church services",
+  "main": "main.js",
+  "scripts": {
+    "start": "electron ."
+  },
+  "devDependencies": {
+    "electron": "^33.0.0"
+  },
+  "productName": "Redcast"
+}

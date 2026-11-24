@@ -1,0 +1,322 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>Launcher demo</title>
+<style>
+:root{
+  --page:#e6e6ea; --ink:#1b1b1d; --sub:#5b5b62;
+  --bg:#101010; --panel:#171717; --raise2:#262626; --line:#2a2a2a; --line2:#383838;
+  --text:#ebebeb; --muted:#8c8c8c; --red:#ef4b52; --green:#43c984; --amber:#f2b441;
+  box-sizing:border-box; padding-top:env(safe-area-inset-top,0px); padding-bottom:env(safe-area-inset-bottom,0px);
+}
+@media (prefers-color-scheme: dark){:root:not([data-theme="light"]){--page:#0a0a0b; --ink:#e8e8ea; --sub:#8e8e96}}
+:root[data-theme="dark"]{--page:#0a0a0b; --ink:#e8e8ea; --sub:#8e8e96}
+*{box-sizing:border-box}
+html{color-scheme:light dark}
+body{margin:0;background:var(--page);color:var(--ink);font:15px/1.45 "Segoe UI",system-ui,-apple-system,Roboto,sans-serif;padding:28px 16px 40px}
+.note{max-width:880px;margin:0 auto 14px;color:var(--sub);font-size:13px}
+.note button{font:inherit;color:inherit;background:none;border:0;text-decoration:underline;cursor:pointer;padding:0}
+.win{position:relative;max-width:880px;margin:0 auto;background:var(--bg);color:var(--text);border:1px solid var(--line2);border-radius:14px;overflow:hidden;box-shadow:0 18px 50px rgba(0,0,0,.35);min-height:560px}
+.bar{display:flex;align-items:center;gap:10px;padding:10px 14px;background:var(--panel);border-bottom:1px solid var(--line);font-size:13px;color:var(--muted)}
+.bar b{color:var(--text);font-weight:600}
+.bar i{margin-left:auto;font-style:normal;letter-spacing:6px}
+.dot{width:10px;height:10px;border-radius:50%;background:var(--red)}
+.nav{display:flex;gap:4px;padding:10px 22px 0;border-bottom:1px solid var(--line)}
+.nav button{font:inherit;font-size:14px;color:var(--muted);background:none;border:0;border-bottom:2px solid transparent;padding:8px 14px;cursor:pointer}
+.nav button.on{color:var(--text);border-color:var(--red)}
+main{padding:6px 22px 26px}
+h2{font-size:14px;font-weight:600;color:var(--muted);margin:22px 0 10px}
+.grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(250px,1fr));gap:14px}
+.card{background:var(--panel);border:1px solid var(--line);border-radius:12px;padding:16px;display:flex;flex-direction:column;gap:12px}
+.top{display:flex;gap:14px;align-items:center}
+.top svg{width:60px;height:60px;flex:none}
+.top h3{margin:0;font-size:17px;font-weight:600}
+.top small{color:var(--muted);font-size:12.5px;display:block}
+.desc{margin:0;color:var(--muted);font-size:13.5px}
+.row{display:flex;gap:8px;align-items:center;margin-top:auto}
+.btn{appearance:none;font:inherit;font-size:14px;cursor:pointer;padding:8px 16px;border-radius:8px;border:1px solid var(--line2);background:var(--raise2);color:var(--text)}
+.btn:hover{background:#303030}
+.btn.pri{background:var(--red);border-color:var(--red);color:#fff;font-weight:600}
+.btn.pri:hover{background:#f45e64}
+.btn:disabled{opacity:.5;cursor:default}
+.badge{font-size:12px;padding:2px 9px;border-radius:99px;border:1px solid var(--line2);color:var(--muted);margin-left:auto}
+.badge.run{color:var(--green);border-color:#245a41}
+.badge.upd{color:var(--amber);border-color:#6a5220}
+.prog{height:6px;border-radius:9px;background:var(--raise2);overflow:hidden;display:none}
+.prog div{height:100%;width:0;background:var(--red)}
+.tools{display:flex;gap:10px;flex-wrap:wrap}
+select{font:inherit;font-size:14px;color:var(--text);background:var(--raise2);border:1px solid var(--line2);border-radius:8px;padding:7px 10px}
+.set{display:flex;align-items:center;gap:14px;padding:10px 14px;background:var(--panel);border:1px solid var(--line);border-radius:10px;margin-bottom:8px}
+.set svg{width:36px;height:36px;flex:none}
+.set span{flex:1}
+.set small{display:block;color:var(--muted);font-size:12.5px}
+.mons{display:grid;grid-template-columns:repeat(auto-fit,minmax(300px,1fr));gap:14px}
+.mon{border:1px solid var(--line2);border-radius:10px;overflow:hidden;background:#0b0b0b;display:flex;flex-direction:column;aspect-ratio:16/10}
+.mon>p{margin:0;padding:6px 12px;font-size:12.5px;color:var(--muted);background:var(--panel);border-bottom:1px solid var(--line)}
+.tabs{display:flex;background:#1a1a1a;border-bottom:1px solid var(--line2)}
+.tabs button{font:inherit;font-size:13px;color:var(--muted);background:none;border:0;border-right:1px solid var(--line2);padding:7px 14px;cursor:pointer;display:flex;align-items:center;gap:7px}
+.tabs button.on{color:var(--text);background:#262626;box-shadow:inset 0 -2px 0 var(--red)}
+.tabs s{width:7px;height:7px;border-radius:50%;background:#555;display:block}
+.tabs .r s{background:var(--green)}
+.win2{flex:1;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:8px;color:var(--muted);font-size:13px}
+.win2 svg{width:64px;height:64px}
+.win2.off svg{opacity:.35}
+.ask{position:absolute;inset:0;background:rgba(8,8,8,.78);backdrop-filter:blur(6px);display:flex;align-items:center;justify-content:center;padding:18px;z-index:5}
+.ask[hidden]{display:none}
+.dlg{width:100%;max-width:460px;background:linear-gradient(180deg,#1c1c1c,#151515);border:1px solid var(--line2);border-radius:20px;padding:30px 28px 22px;box-shadow:0 24px 70px rgba(0,0,0,.6);text-align:center}
+.icons{display:flex;justify-content:center;margin-bottom:18px}
+.icons svg{width:68px;height:68px;filter:drop-shadow(0 6px 14px rgba(0,0,0,.5))}
+.icons svg+svg{margin-left:-10px}
+.dlg h1{margin:0 0 6px;font-size:22px;font-weight:600}
+.dlg p{margin:0 0 22px;color:var(--muted);font-size:14px}
+.opt{display:block;width:100%;text-align:left;font:inherit;color:var(--text);background:var(--raise2);border:1px solid var(--line2);border-radius:12px;padding:16px 18px;margin-bottom:10px;cursor:pointer}
+.opt:hover{border-color:#555}
+.opt b{display:block;font-size:16px;font-weight:600}
+.opt small{display:block;color:var(--muted);font-size:13px;margin-top:2px}
+.opt.pri{background:var(--red);border-color:var(--red)}
+.opt.pri:hover{background:#f45e64}
+.opt.pri small{color:#ffe3e4}
+.rem{display:flex;align-items:center;justify-content:center;gap:8px;margin-top:14px;color:var(--muted);font-size:13px;cursor:pointer}
+.rem input{accent-color:var(--red)}
+.inst{display:flex;align-items:center;gap:14px;text-align:left;margin-bottom:14px}
+.inst svg{width:44px;height:44px;flex:none}
+.inst>div{flex:1}
+.inst small{display:flex;justify-content:space-between;color:var(--muted);font-size:13px;margin-bottom:6px}
+.inst .prog{display:block}
+.inst .prog div{background:linear-gradient(90deg,var(--red),#ff9a9f,var(--red));background-size:200% 100%;animation:sh 1.2s linear infinite}
+@keyframes sh{to{background-position:-200% 0}}
+.ring{--p:0;width:128px;height:128px;margin:0 auto 20px;border-radius:50%;background:conic-gradient(var(--red) calc(var(--p)*1%),#2a2a2a 0);display:grid;place-items:center;box-shadow:0 0 36px rgba(239,75,82,.22)}
+.ring>div{width:106px;height:106px;border-radius:50%;background:#151515;display:flex;flex-direction:column;align-items:center;justify-content:center}
+.ring b{font-size:26px;font-weight:600}
+.ring small{font-size:11.5px;color:var(--muted)}
+.radar{position:relative;width:96px;height:96px;margin:6px auto 22px}
+.radar i{position:absolute;inset:0;border:2px solid var(--red);border-radius:50%;opacity:0;animation:rd 1.8s ease-out infinite}
+.radar i:nth-child(2){animation-delay:.6s}
+.radar i:nth-child(3){animation-delay:1.2s}
+.radar::after{content:"";position:absolute;inset:40px;border-radius:50%;background:var(--red)}
+@keyframes rd{from{transform:scale(.2);opacity:.9}to{transform:scale(1);opacity:0}}
+.smons{display:flex;gap:12px;margin-bottom:16px}
+.sm{flex:1}
+.sm>div{aspect-ratio:16/10;border:1px solid var(--line2);border-radius:8px;background:#0c0c0c;display:flex;align-items:center;justify-content:center;gap:4px;color:#666;font-size:12px}
+.sm>div svg{width:34px;height:34px}
+.sm small{display:block;margin-top:6px;color:var(--muted);font-size:12px}
+.pick{display:flex;align-items:center;gap:12px;margin-bottom:10px;text-align:left}
+.pick svg{width:36px;height:36px;flex:none}
+.pick b{flex:1;font-size:15px;font-weight:600}
+.seg{display:flex;border:1px solid var(--line2);border-radius:9px;overflow:hidden}
+.seg button{font:inherit;font-size:13px;color:var(--muted);background:var(--raise2);border:0;padding:7px 14px;cursor:pointer}
+.seg button+button{border-left:1px solid var(--line2)}
+.seg button.on{background:var(--red);color:#fff}
+.dlg .share{min-height:20px;margin:6px 0 16px;font-size:13px;color:var(--amber)}
+.opt:disabled{opacity:.4;cursor:default}
+.dlg .hint{margin:12px 0 0;font-size:12.5px}
+.win.away{opacity:.3;filter:blur(1px);pointer-events:none;transition:.4s}
+.task{max-width:880px;margin:10px auto 0;display:flex;align-items:center;gap:14px;padding:8px 14px;background:#1b1b1d;color:#ccc;border:1px solid #333;border-radius:10px;font-size:13px}
+.task[hidden]{display:none}
+.task span:first-child{flex:1}
+.tray{display:flex;background:none;border:1px solid transparent;border-radius:6px;padding:3px;cursor:pointer}
+.tray:hover{border-color:#666;background:#2a2a2a}
+.tray svg{width:26px;height:26px}
+@media (prefers-reduced-motion:reduce){.inst .prog div,.radar i{animation:none}.win.away{transition:none}}
+.toast{position:fixed;left:50%;bottom:calc(22px + env(safe-area-inset-bottom,0px));transform:translate(-50%,20px);opacity:0;background:#2a2a2a;color:#ebebeb;border:1px solid #444;padding:10px 18px;border-radius:10px;font-size:14px;transition:.2s;pointer-events:none;max-width:90vw;z-index:9}
+.toast.show{opacity:1;transform:translate(-50%,0)}
+:focus-visible{outline:2px solid #fff;outline-offset:2px}
+@media (prefers-reduced-motion:reduce){.toast{transition:none}}
+</style>
+</head>
+<body>
+<svg width="0" height="0" style="position:absolute" aria-hidden="true"><defs>
+<symbol id="tile" viewBox="0 0 512 512"><rect x="16" y="16" width="480" height="480" rx="112" fill="#141414" stroke="#2e2e2e" stroke-width="4"/></symbol>
+<symbol id="live" viewBox="0 0 512 512"><use href="#tile"/><g fill="none" stroke="#ebebeb" stroke-width="30" stroke-linecap="round"><path d="M330.3 189.1A100 100 0 0 1 330.3 322.9"/><path d="M181.7 322.9A100 100 0 0 1 181.7 189.1"/><path d="M382.3 142.3A170 170 0 0 1 382.3 369.7"/><path d="M129.7 369.7A170 170 0 0 1 129.7 142.3"/></g><circle cx="256" cy="256" r="58" fill="#ef4b52"/></symbol>
+<symbol id="cam" viewBox="0 0 512 512"><use href="#tile"/><circle cx="256" cy="256" r="127" fill="none" stroke="#ebebeb" stroke-width="30"/><circle cx="256" cy="256" r="44" fill="#ef4b52"/><g fill="#ef4b52"><path d="M256 58L226 104H286Z"/><path d="M256 454L226 408H286Z"/><path d="M58 256L104 226V286Z"/><path d="M454 256L408 226V286Z"/></g></symbol>
+
+<symbol id="lch" viewBox="0 0 512 512"><use href="#tile"/><rect x="120" y="120" width="124" height="124" rx="28" fill="#ef4b52"/><rect x="268" y="120" width="124" height="124" rx="28" fill="#ebebeb"/><rect x="120" y="268" width="124" height="124" rx="28" fill="#ebebeb"/><rect x="268" y="268" width="124" height="124" rx="28" fill="#ebebeb"/></symbol>
+</defs></svg>
+
+<p class="note">Demo only: nothing is really installed or launched. <button id="replay">Replay first launch</button></p>
+
+<div class="win">
+  <div class="bar"><span class="dot"></span><b>Launcher</b><span>Immanuel Lutheran</span><i>– □ ×</i></div>
+  <div class="ask" id="ask" role="dialog" aria-modal="true" aria-labelledby="askT" hidden>
+    <div class="dlg">
+      <div id="stInstall">
+        <div class="ring" id="ring"><div><b id="pct">0%</b><small id="pstep">Starting…</small></div></div>
+        <h1>Setting up your apps</h1>
+        <p>First launch. This happens once and needs no clicks.</p>
+        <div id="instRows"></div>
+      </div>
+      <div id="stScreens" hidden>
+        <div id="scanning">
+          <div class="radar"><i></i><i></i><i></i></div>
+          <h1>Looking for screens</h1>
+          <p>Checking what is plugged in.</p>
+        </div>
+        <div id="picker" hidden>
+          <h1>Found 2 screens</h1>
+          <p>Which screen should each app open on?</p>
+          <div id="pickBody"></div>
+          <button class="opt pri" id="optCont" disabled><b>Continue</b></button>
+        </div>
+      </div>
+      <div id="stChoose" hidden>
+        <div class="icons"><svg aria-hidden="true"><use href="#live"/></svg><svg aria-hidden="true"><use href="#cam"/></svg></div>
+        <h1 id="askT">What would you like to open?</h1>
+        <p>Your apps are installed and ready.</p>
+        <button class="opt pri" id="optAll"><b>Open all apps</b><small id="optAllSub"></small></button>
+        <button class="opt" id="optL"><b>Open the launcher</b><small>Open just one app or change settings</small></button>
+        <label class="rem"><input type="checkbox" id="remember"> Don’t ask again</label>
+        <p class="hint">You can always open the launcher from the tray icon near the clock, or hold Shift while starting it.</p>
+      </div>
+    </div>
+  </div>
+  <div class="nav"><button class="on" data-v="apps">Apps</button><button data-v="settings">Settings</button></div>
+
+  <main id="v-apps">
+    <h2>Your apps</h2>
+    <div class="grid" id="apps"></div>
+  </main>
+
+  <main id="v-settings" hidden>
+    <h2>When the launcher starts</h2>
+    <div class="set"><span>Startup choice<small>What happens when you double-click the launcher. Hold Shift to skip this.</small></span>
+      <select id="startMode"><option value="ask">Ask me</option><option value="all">Open all apps</option><option value="launcher">Show the launcher</option></select></div>
+    <h2>Where each app opens</h2>
+    <div id="where"></div>
+    <h2>Preview</h2>
+    <div class="mons" id="mons"></div>
+    <h2>Fix-it tools</h2>
+    <div class="tools">
+      <button class="btn" data-tool="Checking this PC’s graphics encoder…|Encoder OK: using the graphics card.">Re-check this PC</button>
+      <button class="btn" data-tool="Downloading ffmpeg again…|ffmpeg reset and ready.">Reset ffmpeg</button>
+      <button class="btn" data-tool="Repairing install…|Install repaired.">Repair install</button>
+      <button class="btn" data-tool="Opening logs folder…|Opened the logs folder.">Open logs</button>
+    </div>
+  </main>
+
+</div>
+<div class="task" id="task" hidden><span>Taskbar: the launcher is running in the tray. Right-click it for Open launcher, Check for updates and Quit.</span><button class="tray" id="tray" title="Launcher: click to open" aria-label="Open the launcher from the tray"><svg aria-hidden="true"><use href="#lch"/></svg></button><span>10:42 AM</span></div>
+<div class="toast" id="toast" role="status" aria-live="polite"></div>
+
+<script>
+const apps=[
+  {id:'redcast',name:'Redcast',icon:'live',ver:'0.1.0',desc:'Broadcaster: cameras, lower thirds, Bible verses, streaming.',installed:true,running:false,newer:'0.2.0',screen:1},
+  {id:'redcam',name:'Redcam',icon:'cam',ver:'1.0.0',desc:'PTZ camera control with presets for every spot on the platform.',installed:true,running:false,screen:1},
+];
+const active={1:'redcast',2:'redcast'};
+const $=s=>document.querySelector(s), toastEl=$('#toast'); let tt;
+const toast=m=>{toastEl.textContent=m;toastEl.classList.add('show');clearTimeout(tt);tt=setTimeout(()=>toastEl.classList.remove('show'),2400)};
+const inst=()=>apps.filter(a=>a.installed);
+function render(){
+  $('#apps').innerHTML=apps.map(a=>`
+    <article class="card" data-id="${a.id}">
+      <div class="top"><svg aria-hidden="true"><use href="#${a.icon}"/></svg>
+        <div><h3>${a.name}</h3><small>${a.installed?'Version '+a.ver:'Installing…'}</small></div>
+        ${a.running?'<span class="badge run">Running</span>':a.newer?'<span class="badge upd">Update '+a.newer+'</span>':''}
+      </div>
+      <p class="desc">${a.desc}</p>
+      <div class="prog"${a.installed?'':' style="display:block"'}><div style="width:${a.pct||0}%"></div></div>
+      <div class="row">
+        ${a.installed?`<button class="btn ${a.running?'':'pri'}" data-act="toggle">${a.running?'Close':'Open'}</button>`:`<span class="desc">Installing automatically…</span>`}
+        ${a.newer&&!a.running?'<button class="btn" data-act="update">Update</button>':''}
+      </div>
+    </article>`).join('');
+  const tot=apps.reduce((s,a)=>s+(a.installed?100:(a.pct||0)),0)/apps.length;
+  $('#ring').style.setProperty('--p',tot);$('#pct').textContent=Math.round(tot)+'%';
+  const cur=apps.find(a=>!a.installed);$('#pstep').textContent=cur?(cur.pct>55?'Installing '+cur.name:'Downloading '+cur.name):'All done';
+  $('#instRows').innerHTML=apps.map(a=>`<div class="inst"><svg aria-hidden="true"><use href="#${a.icon}"/></svg><div><small><span>${a.name}</span><span>${a.installed?'Installed':'Installing…'}</span></small><div class="prog"><div style="width:${a.installed?100:(a.pct||0)}%"></div></div></div></div>`).join('');
+  $('#where').innerHTML=inst().map(a=>`
+    <div class="set"><svg aria-hidden="true"><use href="#${a.icon}"/></svg>
+      <span>${a.name}<small>Opens on</small></span>
+      <select data-app="${a.id}" aria-label="Screen for ${a.name}"><option value="1"${a.screen==1?' selected':''}>Screen 1</option><option value="2"${a.screen==2?' selected':''}>Screen 2</option></select></div>`).join('');
+  $('#mons').innerHTML=[1,2].map(n=>{
+    const list=inst().filter(a=>a.screen==n);
+    if(!list.length)return `<div class="mon"><p>Screen ${n}</p><div class="win2">Nothing assigned</div></div>`;
+    if(!list.some(a=>a.id==active[n]))active[n]=list[0].id;
+    const cur=list.find(a=>a.id==active[n]);
+    const tabs=list.length>1?`<div class="tabs" role="tablist">${list.map(a=>`<button role="tab" class="${a.id==cur.id?'on':''} ${a.running?'r':''}" data-tab="${n}:${a.id}"><s></s>${a.name}</button>`).join('')}</div>`:'';
+    return `<div class="mon"><p>Screen ${n}${list.length>1?' · tab bar added because '+list.length+' apps share it':''}</p>${tabs}
+      <div class="win2 ${cur.running?'':'off'}"><svg aria-hidden="true"><use href="#${cur.icon}"/></svg>${cur.name}${cur.running?'':' (closed)'}</div></div>`;
+  }).join('');
+}
+function view(v){
+  document.querySelectorAll('.nav button').forEach(b=>b.classList.toggle('on',b.dataset.v==v));
+  $('#v-apps').hidden=v!='apps'; $('#v-settings').hidden=v!='settings';
+}
+function progress(card,done){
+  const p=card.querySelector('.prog'),b=p.firstElementChild;p.style.display='block';
+  card.querySelectorAll('.btn').forEach(x=>x.disabled=true);
+  let w=0;const t=setInterval(()=>{w+=8+Math.random()*12;b.style.width=Math.min(w,100)+'%';if(w>=100){clearInterval(t);done()}},180);
+}
+$('.nav').addEventListener('click',e=>{const b=e.target.closest('[data-v]');if(b)view(b.dataset.v)});
+$('#apps').addEventListener('click',e=>{
+  const btn=e.target.closest('[data-act]'); if(!btn)return;
+  const card=btn.closest('.card'), a=apps.find(x=>x.id===card.dataset.id);
+  if(btn.dataset.act==='toggle'){a.running=!a.running;toast(a.name+(a.running?' opened on Screen '+a.screen:' closed'));render()}
+  if(btn.dataset.act==='update')progress(card,()=>{a.ver=a.newer;a.newer=null;toast(a.name+' updated to '+a.ver);render()});
+});
+$('#where').addEventListener('change',e=>{
+  const s=e.target.closest('select'); if(!s)return;
+  apps.find(a=>a.id===s.dataset.app).screen=+s.value; render();
+});
+$('#mons').addEventListener('click',e=>{
+  const t=e.target.closest('[data-tab]'); if(!t)return;
+  const [n,id]=t.dataset.tab.split(':'); active[n]=id; render();
+});
+function openAll(){
+  $('#ask').hidden=true;view('settings');
+  apps.forEach((a,i)=>setTimeout(()=>{a.running=true;render()},i*600));
+  setTimeout(()=>{document.querySelector('.win').classList.add('away');$('#task').hidden=false},1800);
+  toast('Opened every app on its screen. The launcher is now in the tray.');
+}
+function choose(mode){
+  if($('#remember').checked){$('#startMode').value=mode;toast('Saved. You can change this in Settings.')}
+  if(mode==='all')openAll();else{$('#ask').hidden=true;view('apps')}
+}
+$('#optAll').addEventListener('click',()=>choose('all'));
+$('#optL').addEventListener('click',()=>choose('launcher'));
+function scanScreens(){
+  $('#stInstall').hidden=true;$('#stScreens').hidden=false;
+  $('#scanning').hidden=false;$('#picker').hidden=true;
+  setTimeout(()=>{$('#scanning').hidden=true;$('#picker').hidden=false;renderPicker()},2000);
+}
+function renderPicker(){
+  const same=apps.every(a=>a.screen)&&apps[0].screen==apps[1].screen;
+  const mons=[1,2].map(n=>`<div class="sm"><div>${apps.filter(a=>a.screen==n).map(a=>`<svg aria-hidden="true"><use href="#${a.icon}"/></svg>`).join('')||'empty'}</div><small>Screen ${n}${n==1?' (main)':''} · 1920×1080</small></div>`).join('');
+  const rows=apps.map(a=>`<div class="pick"><svg aria-hidden="true"><use href="#${a.icon}"/></svg><b>${a.name}</b><div class="seg">${[1,2].map(n=>`<button data-pick="${a.id}:${n}" class="${a.screen==n?'on':''}">Screen ${n}</button>`).join('')}</div></div>`).join('');
+  $('#pickBody').innerHTML=`<div class="smons">${mons}</div>${rows}<p class="share">${same?'They share Screen '+apps[0].screen+', so a tab bar will sit at the top to switch between them.':''}</p>`;
+  $('#optCont').disabled=!apps.every(a=>a.screen);
+}
+$('#picker').addEventListener('click',e=>{
+  const b=e.target.closest('[data-pick]'); if(!b)return;
+  const [id,n]=b.dataset.pick.split(':');apps.find(a=>a.id===id).screen=+n;renderPicker();render();
+});
+$('#optCont').addEventListener('click',()=>{
+  $('#optAllSub').textContent=apps.map(x=>x.name+' on Screen '+x.screen).join(', ');
+  $('#stScreens').hidden=true;$('#stChoose').hidden=false;
+});
+function firstLaunch(){
+  apps.forEach(a=>{a.installed=false;a.running=false;a.pct=0;a.screen=null});
+  $('#task').hidden=true;document.querySelector('.win').classList.remove('away');
+  render();view('apps');
+  $('#ask').hidden=false;$('#stInstall').hidden=false;$('#stScreens').hidden=true;$('#stChoose').hidden=true;
+  let i=0;
+  (function next(){
+    const a=apps[i];
+    if(!a){setTimeout(scanScreens,500);return}
+    const t=setInterval(()=>{a.pct=Math.min(100,a.pct+10+Math.random()*14);render();
+      if(a.pct>=100){clearInterval(t);a.installed=true;i++;render();setTimeout(next,250)}},150);
+  })();
+}
+$('#replay').addEventListener('click',firstLaunch);
+$('#tray').addEventListener('click',()=>{document.querySelector('.win').classList.remove('away');$('#task').hidden=true;view('apps');toast('Launcher opened from the tray.')});
+$('#startMode').addEventListener('change',e=>toast({ask:'Next time it will ask what to open.',all:'Next time every app opens by itself.',launcher:'Next time the launcher opens first.'}[e.target.value]));
+document.querySelector('.tools').addEventListener('click',e=>{
+  const b=e.target.closest('[data-tool]'); if(!b)return;
+  const [a,z]=b.dataset.tool.split('|');toast(a);setTimeout(()=>toast(z),1300);
+});
+render();firstLaunch();
+</script>
+</body>
+</html>

@@ -1,0 +1,36 @@
+const { contextBridge, ipcRenderer } = require('electron');
+
+const ALLOWED_EVENTS = ['metrics', 'stream:ended', 'ffmpeg:log', 'tv:state', 'tv:closed', 'rtc:signal'];
+
+contextBridge.exposeInMainWorld('api', {
+  listDisplays: () => ipcRenderer.invoke('displays:list'),
+  openTv: (id) => ipcRenderer.invoke('tv:open', id),
+  closeTv: (id) => ipcRenderer.invoke('tv:close', id),
+  setTv: (id, state) => ipcRenderer.send('tv:set', id, state),
+  rtcSignal: (a, b) => ipcRenderer.send('rtc:signal', b === undefined ? { msg: a } : { id: a, msg: b }), // from the operator: (screen id, message). From an external window: (message)
+  checkFfmpeg: () => ipcRenderer.invoke('ffmpeg:check'),
+  startStream: (opts) => ipcRenderer.invoke('stream:start', opts),
+  sendChunk: (buf) => ipcRenderer.send('stream:chunk', buf),
+  stopStream: () => ipcRenderer.invoke('stream:stop'),
+  logRow: (row) => ipcRenderer.send('log:row', row),
+  openRecordings: () => ipcRenderer.invoke('recordings:open'),
+  appName: () => ipcRenderer.invoke('app:name'),
+  recDir: () => ipcRenderer.invoke('recordings:dir'),
+  setRecDir: (d) => ipcRenderer.invoke('recordings:setDir', d),
+  chooseRecDir: () => ipcRenderer.invoke('recordings:choose'),
+  diskFree: () => ipcRenderer.invoke('disk:free'),
+  recovered: () => ipcRenderer.invoke('app:recovered'),
+  ytStatus: () => ipcRenderer.invoke('yt:status'),
+  ytSetClient: (id, secret) => ipcRenderer.invoke('yt:setClient', id, secret),
+  ytSignIn: () => ipcRenderer.invoke('yt:signIn'),
+  ytSignOut: () => ipcRenderer.invoke('yt:signOut'),
+  ytPrepare: (tpl) => ipcRenderer.invoke('yt:prepare', tpl),
+  ytEnd: (id) => ipcRenderer.invoke('yt:end', id),
+  ytExpand: (text) => ipcRenderer.invoke('yt:expand', text),
+  bibleFetch: (ref, trans) => ipcRenderer.invoke('bible:fetch', ref, trans),
+  openLogs: () => ipcRenderer.invoke('logs:open'),
+  logDir: () => ipcRenderer.invoke('logs:dir'),
+  on: (channel, cb) => {
+    if (ALLOWED_EVENTS.includes(channel)) ipcRenderer.on(channel, (e, data) => cb(data));
+  },
+});

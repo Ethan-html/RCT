@@ -1,0 +1,371 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Red Launcher</title>
+<style>
+:root{
+  --page:#e6e6ea; --ink:#1b1b1d; --sub:#5b5b62;
+  --bg:#101010; --panel:#171717; --raise2:#262626; --line:#2a2a2a; --line2:#383838;
+  --text:#ebebeb; --muted:#8c8c8c; --red:#ef4b52; --green:#43c984; --amber:#f2b441;
+  box-sizing:border-box; padding-top:env(safe-area-inset-top,0px); padding-bottom:env(safe-area-inset-bottom,0px);
+}
+@media (prefers-color-scheme: dark){:root:not([data-theme="light"]){--page:#0a0a0b; --ink:#e8e8ea; --sub:#8e8e96}}
+:root[data-theme="dark"]{--page:#0a0a0b; --ink:#e8e8ea; --sub:#8e8e96}
+*{box-sizing:border-box}
+html{color-scheme:light dark}
+body{margin:0;background:var(--bg);color:var(--text);font:15px/1.45 "Segoe UI",system-ui,-apple-system,Roboto,sans-serif;min-height:100vh}
+.note{max-width:880px;margin:0 auto 14px;color:var(--sub);font-size:13px}
+.note button{font:inherit;color:inherit;background:none;border:0;text-decoration:underline;cursor:pointer;padding:0}
+.win{position:relative;max-width:880px;margin:0 auto;background:var(--bg);color:var(--text);border:1px solid var(--line2);border-radius:14px;overflow:hidden;box-shadow:0 18px 50px rgba(0,0,0,.35);min-height:560px}
+.bar{display:flex;align-items:center;gap:10px;padding:10px 14px;background:var(--panel);border-bottom:1px solid var(--line);font-size:13px;color:var(--muted)}
+.bar b{color:var(--text);font-weight:600}
+.bar i{margin-left:auto;font-style:normal;letter-spacing:6px}
+.dot{width:10px;height:10px;border-radius:50%;background:var(--red)}
+.nav{display:flex;gap:4px;padding:10px 22px 0;border-bottom:1px solid var(--line)}
+.nav button{font:inherit;font-size:14px;color:var(--muted);background:none;border:0;border-bottom:2px solid transparent;padding:8px 14px;cursor:pointer}
+.nav button.on{color:var(--text);border-color:var(--red)}
+main{padding:6px 22px 26px}
+h2{font-size:14px;font-weight:600;color:var(--muted);margin:22px 0 10px}
+.grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(250px,1fr));gap:14px}
+.card{background:var(--panel);border:1px solid var(--line);border-radius:12px;padding:16px;display:flex;flex-direction:column;gap:12px}
+.top{display:flex;gap:14px;align-items:center}
+.top svg{width:60px;height:60px;flex:none}
+.top h3{margin:0;font-size:17px;font-weight:600}
+.top small{color:var(--muted);font-size:12.5px;display:block}
+.desc{margin:0;color:var(--muted);font-size:13.5px}
+.row{display:flex;gap:8px;align-items:center;margin-top:auto}
+.btn{appearance:none;font:inherit;font-size:14px;cursor:pointer;padding:8px 16px;border-radius:8px;border:1px solid var(--line2);background:var(--raise2);color:var(--text)}
+.btn:hover{background:#303030}
+.btn.pri{background:var(--red);border-color:var(--red);color:#fff;font-weight:600}
+.btn.pri:hover{background:#f45e64}
+.btn:disabled{opacity:.5;cursor:default}
+.badge{font-size:12px;padding:2px 9px;border-radius:99px;border:1px solid var(--line2);color:var(--muted);margin-left:auto}
+.badge.run{color:var(--green);border-color:#245a41}
+.badge.upd{color:var(--amber);border-color:#6a5220}
+.prog{height:6px;border-radius:9px;background:var(--raise2);overflow:hidden;display:none}
+.prog div{height:100%;width:0;background:var(--red)}
+.tools{display:flex;gap:10px;flex-wrap:wrap}
+select{font:inherit;font-size:14px;color:var(--text);background:var(--raise2);border:1px solid var(--line2);border-radius:8px;padding:7px 10px}
+.set{display:flex;align-items:center;gap:14px;padding:10px 14px;background:var(--panel);border:1px solid var(--line);border-radius:10px;margin-bottom:8px}
+.set svg{width:36px;height:36px;flex:none}
+.set span{flex:1}
+.set small{display:block;color:var(--muted);font-size:12.5px}
+.mons{display:grid;grid-template-columns:repeat(auto-fit,minmax(300px,1fr));gap:14px}
+.mon{border:1px solid var(--line2);border-radius:10px;overflow:hidden;background:#0b0b0b;display:flex;flex-direction:column;aspect-ratio:16/10}
+.mon>p{margin:0;padding:6px 12px;font-size:12.5px;color:var(--muted);background:var(--panel);border-bottom:1px solid var(--line)}
+.tabs{display:flex;background:#1a1a1a;border-bottom:1px solid var(--line2)}
+.tabs button{font:inherit;font-size:13px;color:var(--muted);background:none;border:0;border-right:1px solid var(--line2);padding:7px 14px;cursor:pointer;display:flex;align-items:center;gap:7px}
+.tabs button.on{color:var(--text);background:#262626;box-shadow:inset 0 -2px 0 var(--red)}
+.tabs s{width:7px;height:7px;border-radius:50%;background:#555;display:block}
+.tabs .r s{background:var(--green)}
+.win2{flex:1;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:8px;color:var(--muted);font-size:13px}
+.win2 svg{width:64px;height:64px}
+.win2.off svg{opacity:.35}
+.ask{position:absolute;inset:0;background:rgba(8,8,8,.78);backdrop-filter:blur(6px);display:flex;align-items:center;justify-content:center;padding:18px;z-index:5}
+.ask[hidden]{display:none}
+.dlg{width:100%;max-width:460px;background:linear-gradient(180deg,#1c1c1c,#151515);border:1px solid var(--line2);border-radius:20px;padding:30px 28px 22px;box-shadow:0 24px 70px rgba(0,0,0,.6);text-align:center}
+.icons{display:flex;justify-content:center;margin-bottom:18px}
+.icons svg{width:68px;height:68px;filter:drop-shadow(0 6px 14px rgba(0,0,0,.5))}
+.icons svg+svg{margin-left:-10px}
+.dlg h1{margin:0 0 6px;font-size:22px;font-weight:600}
+.dlg p{margin:0 0 22px;color:var(--muted);font-size:14px}
+.opt{display:block;width:100%;text-align:left;font:inherit;color:var(--text);background:var(--raise2);border:1px solid var(--line2);border-radius:12px;padding:16px 18px;margin-bottom:10px;cursor:pointer}
+.opt:hover{border-color:#555}
+.opt b{display:block;font-size:16px;font-weight:600}
+.opt small{display:block;color:var(--muted);font-size:13px;margin-top:2px}
+.opt.pri{background:var(--red);border-color:var(--red)}
+.opt.pri:hover{background:#f45e64}
+.opt.pri small{color:#ffe3e4}
+.rem{display:flex;align-items:center;justify-content:center;gap:8px;margin-top:14px;color:var(--muted);font-size:13px;cursor:pointer}
+.rem input{accent-color:var(--red)}
+.inst{display:flex;align-items:center;gap:14px;text-align:left;margin-bottom:14px}
+.inst svg{width:44px;height:44px;flex:none}
+.inst>div{flex:1}
+.inst small{display:flex;justify-content:space-between;color:var(--muted);font-size:13px;margin-bottom:6px}
+.inst .prog{display:block}
+.inst .prog div{background:linear-gradient(90deg,var(--red),#ff9a9f,var(--red));background-size:200% 100%;animation:sh 1.2s linear infinite}
+@keyframes sh{to{background-position:-200% 0}}
+.ring{--p:0;width:128px;height:128px;margin:0 auto 20px;border-radius:50%;background:conic-gradient(var(--red) calc(var(--p)*1%),#2a2a2a 0);display:grid;place-items:center;box-shadow:0 0 36px rgba(239,75,82,.22)}
+.ring>div{width:106px;height:106px;border-radius:50%;background:#151515;display:flex;flex-direction:column;align-items:center;justify-content:center}
+.ring b{font-size:26px;font-weight:600}
+.ring small{font-size:11.5px;color:var(--muted)}
+.radar{position:relative;width:96px;height:96px;margin:6px auto 22px}
+.radar i{position:absolute;inset:0;border:2px solid var(--red);border-radius:50%;opacity:0;animation:rd 1.8s ease-out infinite}
+.radar i:nth-child(2){animation-delay:.6s}
+.radar i:nth-child(3){animation-delay:1.2s}
+.radar::after{content:"";position:absolute;inset:40px;border-radius:50%;background:var(--red)}
+@keyframes rd{from{transform:scale(.2);opacity:.9}to{transform:scale(1);opacity:0}}
+.smons{display:flex;gap:12px;margin-bottom:16px}
+.sm{flex:1}
+.sm>div{aspect-ratio:16/10;border:1px solid var(--line2);border-radius:8px;background:#0c0c0c;display:flex;align-items:center;justify-content:center;gap:4px;color:#666;font-size:12px}
+.sm>div svg{width:34px;height:34px}
+.sm small{display:block;margin-top:6px;color:var(--muted);font-size:12px}
+.pick{display:flex;align-items:center;gap:12px;margin-bottom:10px;text-align:left}
+.pick svg{width:36px;height:36px;flex:none}
+.pick b{flex:1;font-size:15px;font-weight:600}
+.seg{display:flex;border:1px solid var(--line2);border-radius:9px;overflow:hidden}
+.seg button{font:inherit;font-size:13px;color:var(--muted);background:var(--raise2);border:0;padding:7px 14px;cursor:pointer}
+.seg button+button{border-left:1px solid var(--line2)}
+.seg button.on{background:var(--red);color:#fff}
+.dlg .share{min-height:20px;margin:6px 0 16px;font-size:13px;color:var(--amber)}
+.opt:disabled{opacity:.4;cursor:default}
+.dlg .hint{margin:12px 0 0;font-size:12.5px}
+.win.away{opacity:.3;filter:blur(1px);pointer-events:none;transition:.4s}
+.task{max-width:880px;margin:10px auto 0;display:flex;align-items:center;gap:14px;padding:8px 14px;background:#1b1b1d;color:#ccc;border:1px solid #333;border-radius:10px;font-size:13px}
+.task[hidden]{display:none}
+.task span:first-child{flex:1}
+.tray{display:flex;background:none;border:1px solid transparent;border-radius:6px;padding:3px;cursor:pointer}
+.tray:hover{border-color:#666;background:#2a2a2a}
+.tray svg{width:26px;height:26px}
+@media (prefers-reduced-motion:reduce){.inst .prog div,.radar i{animation:none}.win.away{transition:none}}
+.toast{position:fixed;left:50%;bottom:calc(22px + env(safe-area-inset-bottom,0px));transform:translate(-50%,20px);opacity:0;background:#2a2a2a;color:#ebebeb;border:1px solid #444;padding:10px 18px;border-radius:10px;font-size:14px;transition:.2s;pointer-events:none;max-width:90vw;z-index:9}
+.toast.show{opacity:1;transform:translate(-50%,0)}
+:focus-visible{outline:2px solid #fff;outline-offset:2px}
+@media (prefers-reduced-motion:reduce){.toast{transition:none}}
+
+.win{max-width:none;margin:0;border:0;border-radius:0;box-shadow:none;min-height:100vh}
+.ask{position:fixed}
+.busy{background:#2a2a2a;border-bottom:1px solid var(--line2);padding:8px 22px;font-size:13px;color:var(--amber)}
+.busy[hidden]{display:none}
+.txt{width:100%;font:inherit;font-size:14px;color:var(--text);background:var(--raise2);border:1px solid var(--line2);border-radius:8px;padding:9px 12px;margin-bottom:12px}
+.err{color:var(--amber);font-size:14px;margin:0 0 18px;text-align:left;line-height:1.5}
+.set .txt{margin:0;width:260px}
+.chip{display:inline-flex;align-items:center;gap:6px;padding:4px 10px;border:1px solid var(--line2);border-radius:99px;font-size:12.5px;color:var(--text);background:var(--raise2)}
+.chip svg{width:18px;height:18px}
+.mon .chips{flex:1;display:flex;align-items:center;justify-content:center;gap:8px;flex-wrap:wrap;padding:10px}
+.ver{font-size:12px;color:var(--muted)}
+.btn.upd{border-color:#6a5220;color:var(--amber)}
+.btn.upd:hover{background:#2e2615}
+.hold{margin:0;font-size:12.5px;color:var(--amber);background:#241e10;border:1px solid #4a3a16;border-radius:8px;padding:7px 10px}
+.banner{display:flex;align-items:center;gap:14px;margin:18px 0 0;padding:12px 16px;background:#241e10;border:1px solid #6a5220;border-radius:12px}
+.banner[hidden]{display:none}
+.banner span{flex:1;font-size:14px}
+.banner small{display:block;color:var(--muted);font-size:12.5px;margin-top:2px}
+.ups{margin:0 0 18px;text-align:left}
+.ups .inst{margin-bottom:10px}
+.ups .done small span:last-child{color:var(--green)}
+</style>
+</head>
+<body>
+<svg width="0" height="0" style="position:absolute" aria-hidden="true"><defs>
+<symbol id="tile" viewBox="0 0 512 512"><rect x="16" y="16" width="480" height="480" rx="112" fill="#141414" stroke="#2e2e2e" stroke-width="4"/></symbol>
+<symbol id="live" viewBox="0 0 512 512"><use href="#tile"/><g fill="none" stroke="#ebebeb" stroke-width="30" stroke-linecap="round"><path d="M330.3 189.1A100 100 0 0 1 330.3 322.9"/><path d="M181.7 322.9A100 100 0 0 1 181.7 189.1"/><path d="M382.3 142.3A170 170 0 0 1 382.3 369.7"/><path d="M129.7 369.7A170 170 0 0 1 129.7 142.3"/></g><circle cx="256" cy="256" r="58" fill="#ef4b52"/></symbol>
+<symbol id="cam" viewBox="0 0 512 512"><use href="#tile"/><circle cx="256" cy="256" r="127" fill="none" stroke="#ebebeb" stroke-width="30"/><circle cx="256" cy="256" r="44" fill="#ef4b52"/><g fill="#ef4b52"><path d="M256 58L226 104H286Z"/><path d="M256 454L226 408H286Z"/><path d="M58 256L104 226V286Z"/><path d="M454 256L408 226V286Z"/></g></symbol>
+
+<symbol id="lch" viewBox="0 0 512 512"><use href="#tile"/><rect x="120" y="120" width="124" height="124" rx="28" fill="#ef4b52"/><rect x="268" y="120" width="124" height="124" rx="28" fill="#ebebeb"/><rect x="120" y="268" width="124" height="124" rx="28" fill="#ebebeb"/><rect x="268" y="268" width="124" height="124" rx="28" fill="#ebebeb"/></symbol>
+</defs></svg>
+<div class="win">
+  <div class="busy" id="busy" hidden></div>
+  <div class="ask" id="ask" role="dialog" aria-modal="true" hidden>
+    <div class="dlg">
+      <div id="stInstall" hidden>
+        <div class="ring" id="ring"><div><b id="pct">0%</b><small id="pstep">Starting…</small></div></div>
+        <h1>Setting up your apps</h1>
+        <p>First launch. This happens once and needs no clicks.</p>
+        <div id="instRows"></div>
+      </div>
+      <div id="stRepo" hidden>
+        <h1>Where are the apps?</h1>
+        <p>Type the GitHub repo that holds your releases, like <b>yourname/RCT</b>.</p>
+        <input class="txt" id="repoFirst" placeholder="owner/RCT" spellcheck="false">
+        <button class="opt pri" id="repoGo"><b>Save and install</b></button>
+      </div>
+      <div id="stError" hidden>
+        <h1>That did not work</h1>
+        <p class="err" id="errMsg"></p>
+        <button class="opt pri" id="errRetry"><b>Try again</b></button>
+        <button class="opt" id="errSkip" hidden><b>Continue without it</b><small>Open what is already installed</small></button>
+      </div>
+      <div id="stScreens" hidden>
+        <h1 id="scrT">Found 2 screens</h1>
+        <p>Which screen should each app open on?</p>
+        <div id="pickBody"></div>
+        <button class="opt pri" id="optCont"><b>Continue</b></button>
+      </div>
+      <div id="stUpdates" hidden>
+        <div class="icons" id="updIcons"></div>
+        <h1 id="updT">Updates are ready</h1>
+        <p id="updSub">Nothing changes until you choose.</p>
+        <div class="ups" id="updRows"></div>
+        <button class="opt pri" id="updGo"><b>Update now</b><small id="updGoSub"></small></button>
+        <button class="opt" id="updLater"><b>Not now</b><small>Open everything as it is</small></button>
+      </div>
+      <div id="stChoose" hidden>
+        <div class="icons" id="chooseIcons"></div>
+        <h1>What would you like to open?</h1>
+        <p>Your apps are installed and ready.</p>
+        <button class="opt pri" id="optAll"><b>Open all apps</b><small id="optAllSub"></small></button>
+        <button class="opt" id="optL"><b>Open the launcher</b><small>Open just one app or change settings</small></button>
+        <label class="rem"><input type="checkbox" id="remember"> Don’t ask again</label>
+        <p class="hint">You can always open the launcher from the tray icon near the clock, or hold Shift while starting it.</p>
+      </div>
+    </div>
+  </div>
+
+  <div class="nav"><button class="on" data-v="apps">Apps</button><button data-v="settings">Settings</button></div>
+
+  <main id="v-apps">
+    <div class="banner" id="banner" hidden></div>
+    <h2>Your apps</h2><div class="grid" id="apps"></div>
+    <h2>Launcher</h2><div class="grid" id="lcard"></div>
+  </main>
+
+  <main id="v-settings" hidden>
+    <h2>When the launcher starts</h2>
+    <div class="set"><span>Startup choice<small>What happens when you double-click the launcher. Hold Shift to skip this.</small></span>
+      <select id="startMode"><option value="ask">Ask me</option><option value="all">Open all apps</option><option value="launcher">Show the launcher</option></select></div>
+    <h2>Where each app opens</h2>
+    <div id="where"></div>
+    <h2>Preview</h2>
+    <div class="mons" id="mons"></div>
+    <h2>Updates</h2>
+    <div class="set"><span>GitHub repo<small>Where new versions are published</small></span>
+      <input class="txt" id="repo" placeholder="owner/RCT" spellcheck="false"><button class="btn" id="repoSave">Save</button></div>
+    <div class="set"><span>Check for updates<small id="lver">Nothing is ever updated by itself. You choose when.</small></span><button class="btn" id="chk">Check now</button></div>
+    <div id="rollbacks"></div>
+    <h2>Fix-it tools</h2>
+    <div class="tools">
+      <button class="btn" data-tool="recheck">Re-check this PC</button>
+      <button class="btn" data-tool="ffmpeg">Reset ffmpeg</button>
+      <button class="btn" data-tool="repair">Repair install</button>
+      <button class="btn" data-tool="logs">Open logs</button>
+    </div>
+  </main>
+</div>
+<div class="toast" id="toast" role="status" aria-live="polite"></div>
+<script>
+const $ = (s) => document.querySelector(s);
+const esc = (s) => String(s == null ? '' : s).replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
+const ic = (g) => `<svg aria-hidden="true"><use href="#${esc(g)}"/></svg>`;
+let S = null, tt, updSnap = null, updWorking = false;
+const toastEl = $('#toast');
+function toast(m) { toastEl.textContent = m; toastEl.classList.add('show'); clearTimeout(tt); tt = setTimeout(() => toastEl.classList.remove('show'), 3500); }
+const call = (ch, a) => red.invoke(ch, a);
+
+function view(v) {
+  document.querySelectorAll('.nav button').forEach((b) => b.classList.toggle('on', b.dataset.v === v));
+  $('#v-apps').hidden = v !== 'apps'; $('#v-settings').hidden = v !== 'settings';
+}
+
+function renderStage() {
+  const ask = $('#ask'), st = S.stage;
+  ask.hidden = !st;
+  for (const [k, id] of [['install', 'stInstall'], ['needRepo', 'stRepo'], ['error', 'stError'], ['screens', 'stScreens'], ['updates', 'stUpdates'], ['choose', 'stChoose']]) $('#' + id).hidden = st !== k;
+  const apps = S.apps;
+  if (st === 'install') {
+    const tot = apps.reduce((n, a) => n + (a.installed ? 100 : a.installing ? a.installing.pct : 0), 0) / apps.length;
+    $('#ring').style.setProperty('--p', tot); $('#pct').textContent = Math.round(tot) + '%';
+    const cur = apps.find((a) => a.installing);
+    $('#pstep').textContent = cur ? cur.installing.text : 'Almost there';
+    $('#instRows').innerHTML = apps.map((a) => `<div class="inst">${ic(a.glyph)}<div><small><span>${esc(a.name)}</span><span>${a.installed ? 'Installed' : a.installing ? esc(a.installing.text) : 'Waiting'}</span></small><div class="prog"><div style="width:${a.installed ? 100 : a.installing ? a.installing.pct : 0}%"></div></div></div></div>`).join('');
+  }
+  if (st === 'updates') {
+    if (!updSnap) updSnap = S.pending.slice();           // keep the list steady while items finish
+    const still = new Set(S.pending.map((p) => p.id));
+    const prog = (p) => p.launcher ? S.launcher.installing : (S.apps.find((a) => a.id === p.id) || {}).installing;
+    const working = updWorking || updSnap.some((p) => prog(p));
+    $('#updIcons').innerHTML = updSnap.map((p) => ic(p.glyph)).join('');
+    $('#updT').textContent = updSnap.length === 1 ? 'An update is ready' : updSnap.length + ' updates are ready';
+    const hasL = updSnap.some((p) => p.launcher);
+    $('#updSub').textContent = working ? 'Please keep this window open.' : 'Nothing changes until you choose.';
+    $('#updRows').innerHTML = updSnap.map((p) => {
+      const i = prog(p), done = !still.has(p.id) && !i;
+      return `<div class="inst${done ? ' done' : ''}">${ic(p.glyph)}<div><small><span>${esc(p.name)} ${esc(p.from)} → ${esc(p.to)}</span><span>${done ? 'Done' : i ? esc(i.text) : working ? 'Waiting' : ''}</span></small>${working ? `<div class="prog"><div style="width:${done ? 100 : i ? i.pct : 0}%"></div></div>` : ''}</div></div>`;
+    }).join('');
+    $('#updGo').disabled = working; $('#updLater').disabled = working;
+    $('#updGoSub').textContent = hasL ? 'The launcher restarts when it finishes, then your apps open.' : 'Takes a moment. Your apps open afterwards.';
+  } else { updSnap = null; updWorking = false; }
+  if (st === 'error') { $('#errMsg').textContent = S.stageInfo.message || ''; $('#errSkip').hidden = !S.stageInfo.canSkip; }
+  if (st === 'screens') {
+    const inst = apps.filter((a) => a.installed);
+    $('#scrT').textContent = 'Found ' + S.displays.length + ' screens';
+    const mons = S.displays.map((d) => `<div class="sm"><div>${inst.filter((a) => a.screen === d.index).map((a) => ic(a.glyph)).join('') || 'empty'}</div><small>Screen ${d.index + 1}${d.index === 0 ? ' (main)' : ''} · ${d.w}×${d.h}</small></div>`).join('');
+    const rows = inst.map((a) => `<div class="pick">${ic(a.glyph)}<b>${esc(a.name)}</b><div class="seg">${S.displays.map((d) => `<button data-pick="${a.id}:${d.index}" class="${a.screen === d.index ? 'on' : ''}">Screen ${d.index + 1}</button>`).join('')}</div></div>`).join('');
+    const shared = S.displays.find((d) => inst.filter((a) => a.screen === d.index).length > 1);
+    $('#pickBody').innerHTML = `<div class="smons">${mons}</div>${rows}<p class="share">${shared ? 'They share Screen ' + (shared.index + 1) + ', so a tab bar will sit at the top to switch between them.' : ''}</p>`;
+  }
+  if (st === 'choose') {
+    const inst = apps.filter((a) => a.installed);
+    $('#chooseIcons').innerHTML = inst.map((a) => ic(a.glyph)).join('');
+    $('#optAllSub').textContent = inst.map((a) => a.name + ' on Screen ' + (a.screen + 1)).join(', ');
+  }
+}
+
+function renderApps() {
+  $('#apps').innerHTML = S.apps.map((a) => {
+    const ins = a.installing;
+    const badge = a.running ? '<span class="badge run">Running</span>' : a.update ? `<span class="badge upd">Update ${esc(a.update)}</span>` : '';
+    const prog = `<div class="prog"${ins ? ' style="display:block"' : ''}><div style="width:${ins ? ins.pct : 0}%"></div></div>`;
+    // A newer version that needs a newer launcher gets no Update button, only a note, until the launcher is updated.
+    const hold = a.blocked && !a.update ? `<p class="hold">Version ${esc(a.blocked.version)} is ready but needs launcher ${esc(a.blocked.needs)} first.${S.launcher.update ? ' Update the launcher below to get it.' : ''}</p>` : '';
+    let row;
+    if (ins) row = `<span class="desc">${esc(ins.text)}</span>`;
+    else if (!a.installed) row = '<span class="desc">Not installed yet</span>';
+    else row = `<button class="btn ${a.running ? '' : 'pri'}" data-act="${a.running ? 'close' : 'open'}">${a.running ? 'Close' : 'Open'}</button>${a.update ? `<button class="btn upd" data-act="update"${a.running ? ' disabled title="Close the app first"' : ''}>Update to ${esc(a.update)}</button>` : ''}`;
+    return `<article class="card" data-id="${esc(a.id)}"><div class="top">${ic(a.glyph)}<div><h3>${esc(a.name)}</h3><small>${a.installed ? 'Version ' + esc(a.version) : 'Not installed'}</small></div>${badge}</div><p class="desc">${esc(a.description)}</p>${hold}${prog}<div class="row">${row}</div></article>`;
+  }).join('');
+
+  const L = S.launcher, li = L.installing;
+  $('#lcard').innerHTML = `<article class="card"><div class="top">${ic('lch')}<div><h3>Red Launcher</h3><small>Version ${esc(L.version)}</small></div>${L.update ? `<span class="badge upd">Update ${esc(L.update)}</span>` : ''}</div>
+    <p class="desc">Installs, updates and opens your apps. New app versions can need a newer launcher.</p>
+    <div class="prog"${li ? ' style="display:block"' : ''}><div style="width:${li ? li.pct : 0}%"></div></div>
+    <div class="row">${li ? `<span class="desc">${esc(li.text)}</span>` : L.update ? `<button class="btn upd" data-lact="update">Update to ${esc(L.update)}</button>` : `<button class="btn" data-lact="check"${S.checking ? ' disabled' : ''}>${S.checking ? 'Checking…' : 'Check for updates'}</button>`}</div></article>`;
+
+  const n = S.pending.length, b = $('#banner');
+  b.hidden = !n || !!S.stage;
+  if (n) b.innerHTML = `<span><b>${n === 1 ? 'An update is ready' : n + ' updates are ready'}</b><small>${S.pending.map((p) => esc(p.name) + ' ' + esc(p.to)).join(' · ')}${S.pending.some((p) => p.launcher) ? '. The launcher restarts last.' : ''}</small></span><button class="btn pri" id="updAll">Update all</button>`;
+}
+
+function renderSettings() {
+  const inst = S.apps.filter((a) => a.installed);
+  if ($('#startMode') !== document.activeElement) $('#startMode').value = S.settings.startup;
+  if ($('#repo') !== document.activeElement) $('#repo').value = S.settings.repo || '';
+  $('#where').innerHTML = inst.map((a) => `<div class="set">${ic(a.glyph)}<span>${esc(a.name)}<small>Opens on</small></span><select data-app="${esc(a.id)}" aria-label="Screen for ${esc(a.name)}">${S.displays.map((d) => `<option value="${d.index}"${a.screen === d.index ? ' selected' : ''}>Screen ${d.index + 1}${d.index === 0 ? ' (main)' : ''}</option>`).join('')}</select></div>`).join('');
+  $('#mons').innerHTML = S.displays.map((d) => {
+    const list = inst.filter((a) => a.screen === d.index);
+    const tabs = list.length > 1 ? `<div class="tabs">${list.map((a, i) => `<button class="${i === 0 ? 'on' : ''} ${a.running ? 'r' : ''}"><s></s>${esc(a.name)}</button>`).join('')}</div>` : '';
+    const body = list.length ? `<div class="chips">${list.map((a) => `<span class="chip">${ic(a.glyph)}${esc(a.name)}</span>`).join('')}</div>` : '<div class="win2">Nothing assigned</div>';
+    return `<div class="mon"><p>Screen ${d.index + 1}${d.index === 0 ? ' (main)' : ''}${list.length > 1 ? ' · tab bar added because ' + list.length + ' apps share it' : ''}</p>${tabs}${body}</div>`;
+  }).join('');
+  $('#rollbacks').innerHTML = inst.filter((a) => a.previous).map((a) => `<div class="set">${ic(a.glyph)}<span>${esc(a.name)}<small>Version ${esc(a.version)} now. Version ${esc(a.previous)} is kept.</small></span><button class="btn" data-rollback="${esc(a.id)}">Go back to ${esc(a.previous)}</button></div>`).join('');
+  $('#lver').textContent = 'Launcher ' + S.launcher.version + '. Nothing is ever updated by itself. You choose when.';
+  $('#chk').disabled = S.checking; $('#chk').textContent = S.checking ? 'Checking…' : 'Check now';
+}
+
+function render() {
+  const b = $('#busy'); b.hidden = !S.busyText; b.textContent = S.busyText;
+  renderStage(); renderApps(); renderSettings();
+}
+
+$('#lcard').addEventListener('click', (e) => { const b = e.target.closest('[data-lact]'); if (b) call(b.dataset.lact === 'update' ? 'launcher:update' : 'updates:check'); });
+$('#banner').addEventListener('click', (e) => { if (e.target.closest('#updAll')) call('updates:all'); });
+$('#updGo').addEventListener('click', () => { updWorking = true; render(); call('updates:all'); });
+$('#updLater').addEventListener('click', () => call('updates:later'));
+$('.nav').addEventListener('click', (e) => { const b = e.target.closest('[data-v]'); if (b) view(b.dataset.v); });
+$('#apps').addEventListener('click', (e) => {
+  const btn = e.target.closest('[data-act]'); if (!btn) return;
+  const id = btn.closest('.card').dataset.id;
+  call({ open: 'app:open', close: 'app:close', update: 'app:update' }[btn.dataset.act], id);
+});
+$('#where').addEventListener('change', (e) => { const s = e.target.closest('select'); if (s) call('screen:set', { id: s.dataset.app, index: +s.value }); });
+$('#startMode').addEventListener('change', (e) => { call('settings:set', { key: 'startup', value: e.target.value }); toast({ ask: 'Next time it will ask what to open.', all: 'Next time every app opens by itself.', launcher: 'Next time the launcher opens first.' }[e.target.value]); });
+$('#rollbacks').addEventListener('click', (e) => { const b = e.target.closest('[data-rollback]'); if (b && confirm('Go back to the earlier version?')) call('app:rollback', b.dataset.rollback); });
+$('#chk').addEventListener('click', () => call('updates:check'));
+$('#repoSave').addEventListener('click', () => call('repo:save', $('#repo').value));
+document.querySelector('.tools').addEventListener('click', (e) => { const b = e.target.closest('[data-tool]'); if (b) call('tool:run', b.dataset.tool); });
+$('#repoGo').addEventListener('click', () => call('repo:save', $('#repoFirst').value));
+$('#errRetry').addEventListener('click', () => call('boot:retry'));
+$('#errSkip').addEventListener('click', () => call('boot:skip'));
+$('#pickBody').addEventListener('click', (e) => { const b = e.target.closest('[data-pick]'); if (!b) return; const [id, n] = b.dataset.pick.split(':'); call('screen:set', { id, index: +n }); });
+$('#optCont').addEventListener('click', () => call('screens:done'));
+$('#optAll').addEventListener('click', () => call('startup:choose', { mode: 'all', remember: $('#remember').checked }));
+$('#optL').addEventListener('click', () => { call('startup:choose', { mode: 'launcher', remember: $('#remember').checked }); view('apps'); });
+
+red.on('state', (s) => { S = s; render(); });
+red.on('toast', toast);
+red.invoke('state:get').then((s) => { S = s; render(); });
+</script>
+</body>
+</html>
