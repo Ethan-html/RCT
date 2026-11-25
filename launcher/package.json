@@ -1,7 +1,7 @@
 {
   "name": "red-launcher",
   "productName": "Red Launcher",
-  "version": "0.1.0",
+  "version": "1.0.0",
   "description": "Installs, updates and opens Redcast and Redcam",
   "main": "main.js",
   "author": "",
