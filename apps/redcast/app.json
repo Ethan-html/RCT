@@ -1,7 +1,7 @@
 {
   "id": "redcast",
   "name": "Redcast",
-  "minLauncher": "0.1.0",
+  "minLauncher": "1.0.0",
   "type": "electron",
   "main": "main.js",
   "icon": "assets/icons/redcast.ico",
