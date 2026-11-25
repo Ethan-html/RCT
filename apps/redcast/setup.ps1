@@ -1,6 +1,5 @@
 # Setup: runs every time START.bat runs. Detects this PC's graphics card and driver, installs the
 # app runtime (Electron) and the ffmpeg build that matches this PC. Quick when nothing has changed.
-param([switch]$FfmpegOnly)   # Red Launcher passes -FfmpegOnly: it supplies the app runtime itself
 $ErrorActionPreference = 'Stop'
 $root = Split-Path -Parent $MyInvocation.MyCommand.Path
 Set-Location $root
@@ -120,7 +119,7 @@ try {
     # It must have electron.exe AND its own ffmpeg.dll AND its resources folder. If any is missing, reinstall it.
     $dllPath = Join-Path $electronDir 'ffmpeg.dll'
     $electronOk = (Test-Path $electronExe) -and (Test-Path $dllPath) -and (Test-Path (Join-Path $electronDir 'resources'))
-    if (-not $FfmpegOnly -and -not $electronOk) {
+    if (-not $electronOk) {
         if (Test-Path $electronExe) {
             Write-Host ''
             Write-Host 'The app runtime is damaged (a file is missing, for example ffmpeg.dll). Reinstalling it...' -ForegroundColor Yellow

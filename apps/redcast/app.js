@@ -372,40 +372,12 @@ $('btnVerseSave').onclick = () => {
 };
 
 // ---------- bottom dock: Bible, Videos & Photos, Lower Thirds, TV, Bible Look ----------
-let lowerThirds = readStore('lowerThirds', []);
-function saveLower() { localStorage.setItem('lowerThirds', JSON.stringify(lowerThirds)); }
-function renderLower() {
-  const box = $('lowerList');
-  box.innerHTML = '';
-  $('lowerEmpty').hidden = lowerThirds.length > 0;
-  lowerThirds.forEach((r, idx) => {
-    const t = document.createElement('button');
-    t.className = 'tile';
-    t.innerHTML = `<b>${esc(r.name)}</b><span>${esc(r.title || '')}</span><i title="Delete">x</i>`;
-    t.onclick = (e) => {
-      if (e.target.tagName === 'I') { lowerThirds.splice(idx, 1); saveLower(); renderLower(); return; }
-      pushName(r.name, r.title || '');
-    };
-    box.appendChild(t);
-  });
-}
-function lowerValues() { return { name: $('lowerName').value.trim(), title: $('lowerTitle').value.trim() }; }
-$('btnLowerAdd').onclick = () => { const v = lowerValues(); if (!v.name) { $('lowerName').focus(); return; } pushName(v.name, v.title); };
-$('btnLowerSave').onclick = () => {
-  const v = lowerValues();
-  if (!v.name) { $('lowerName').focus(); return; }
-  lowerThirds = [v, ...lowerThirds.filter((r) => !(r.name === v.name && r.title === v.title))];
-  saveLower(); renderLower();
-  $('lowerName').value = ''; $('lowerTitle').value = '';
-};
-['lowerName', 'lowerTitle'].forEach((id) => $(id).addEventListener('keydown', (e) => { if (e.key === 'Enter') $('btnLowerAdd').click(); }));
-
 let dockTab = '';
 function setDock(tab) {
   dockTab = tab;
   ['Bible', 'Media', 'Lower'].forEach((t) => { $('pane' + t).hidden = dockTab !== t; });
   document.querySelectorAll('#dockTabs button').forEach((b) => b.classList.toggle('on', b.dataset.tab === dockTab));
-  if (dockTab === 'Lower') $('lowerName').focus();
+  if (dockTab === 'Lower') $('msgA').focus();
 }
 // Views: Show (the service screen), TV, Looks. Keys only act in Show, like the real thing on Sunday.
 let view = 'Show';
@@ -423,7 +395,9 @@ function showPage(p) {
   document.querySelectorAll('.spage').forEach((s) => { s.hidden = s.dataset.page !== p; });
   document.querySelectorAll('.settingsnav button').forEach((b) => b.classList.toggle('on', b.dataset.page === p));
   lookReplay.verse = lookReplay.name = lookReplay.card = performance.now() - 5000;
-  if (p === 'pictures') renderBgGrid();
+  if (p === 'media') showMediaSettings();
+  if (p === 'screens') renderScreenManager();
+  if (p === 'qr') loadQrFields();
 }
 function openSettings(p) { setView('Settings'); showPage(p || settingsPage); }
 document.querySelectorAll('.settingsnav button').forEach((b) => { b.onclick = () => showPage(b.dataset.page); });
@@ -500,8 +474,9 @@ function describe(it) {
   return 'Name: ' + (it.name || '');
 }
 function refreshMainUI() {
-  const differs = previewDiffers();
-  $('btnGo').classList.toggle('ready', differs);
+  const differs = previewDiffers(), clears = sendWouldClear();
+  $('btnGo').classList.toggle('ready', differs || clears);
+  $('btnGo').querySelector('small').textContent = clears ? 'Blank Preview clears the lower third' : 'Preview to Output';
   previewCanvas.classList.toggle('pending', differs);
   $('btnUndo').disabled = !canUndo();
   $('btnRedo').disabled = !canRedo();
@@ -509,6 +484,7 @@ function refreshMainUI() {
   $('btnRemoveSel').disabled = !sel || isBase(sel.type);
   $('hint').textContent = !videoReady ? 'The camera is not running. Open Settings to choose the camera.'
     : differs ? 'Press SEND to put this Preview on the Output.'
+      : clears ? 'Preview is blank. Press SEND to take the lower third off the Output.'
       : 'Preview and Output match. Pick a verse or name to build the next look.';
   const box = $('onnow');
   box.innerHTML = '';
@@ -583,7 +559,8 @@ requestAnimationFrame(loop);
 // ---------- Settings: how lower thirds look. Every kind has its own look. ----------
 const FONT_LIST = ['Segoe UI', 'Figtree', 'Arial', 'Verdana', 'Trebuchet MS', 'Tahoma', 'Calibri', 'Georgia', 'Times New Roman', 'Impact'];
 const FONT_OPTS = FONT_LIST.map((f) => [f, f]);
-const ANIM_OPTS = [['fade', 'Fade'], ['rise', 'Rise up'], ['slide', 'Slide in from the left'], ['wipe', 'Wipe across'], ['zoom', 'Zoom in'], ['bounce', 'Drop in and bounce'], ['unfold', 'Unfold from the middle'], ['flip', 'Swing up'], ['typewriter', 'Type the words on'], ['none', 'Cut (no animation)']];
+const ANIM_OPTS = [['fade', 'Fade'], ['rise', 'Rise up'], ['slide', 'Slide in from the left'], ['slideR', 'Slide in from the right'], ['wipe', 'Wipe across'], ['curtain', 'Open outward from the middle'], ['drop', 'Lower in from above'], ['tilt', 'Tilt up'], ['zoom', 'Zoom in'], ['bounce', 'Drop in and bounce'], ['unfold', 'Unfold from the middle'], ['flip', 'Swing up'], ['typewriter', 'Type the words on'], ['none', 'Cut (no animation)']];
+const ANIM_OPTS_NAME = [...ANIM_OPTS.slice(0, -1), ['line', 'Line stretches out, words rise and drop away'], ['none', 'Cut (no animation)']];
 const ALIGN_OPTS = [['left', 'Left'], ['center', 'Centred']];
 const WEIGHT_OPTS = [['normal', 'Regular'], ['bold', 'Bold']];
 const R = (k, l, min, max, step) => ({ k, l, t: 'range', min, max, step });
@@ -595,7 +572,6 @@ const SEC = {
   shape: { title: 'Shape', shape: true },
   bgPlate: { title: 'Colours', items: [C('bg', 'Main colour'), R('opacity', 'Strength (see-through)', 20, 100, 5), C('accent', 'Accent colour')] },
   bg: { title: 'Background', items: [C('bg', 'Colour'), R('opacity', 'Strength (see-through)', 20, 100, 5), C('accent', 'Accent colour'), R('radius', 'Round the corners', 0, 60, 2)] },
-  pic: { title: 'Picture', picture: true },
   verse: { title: 'Verse text', items: [S('font', 'Font', FONT_OPTS), C('textColor', 'Colour'), R('textScale', 'Size', 60, 140, 5), S('textWeight', 'Weight', WEIGHT_OPTS), R('lineGap', 'Space between lines', 100, 180, 5), S('align', 'Line up', ALIGN_OPTS), R('pad', 'Space around the text', 50, 200, 10), K('shadow', 'Soft shadow behind the text')] },
   ref: { title: 'Book and verse (the reference)', items: [S('refPos', 'Where it goes', [['above', 'Above the verse'], ['below', 'Below the verse']]), C('refColor', 'Colour'), R('refScale', 'Size', 60, 160, 5), K('refCaps', 'Capital letters')] },
   big: { title: 'Big words', items: [S('font', 'Font (all the words)', FONT_OPTS), C('nameColor', 'Colour'), R('nameScale', 'Size', 50, 160, 5), S('nameWeight', 'Weight', WEIGHT_OPTS), K('nameCaps', 'Capital letters')] },
@@ -606,11 +582,12 @@ const SEC = {
   sizeSlide: { title: 'Size and place', items: [R('boxH', 'Height', 100, 300, 10), R('boxX', 'Distance from the left', 0, 1500, 10), R('boxBottom', 'Distance from the bottom', 0, 600, 10)], apply: true, note: 'The width fits the words. Drag it anywhere in Preview and it remembers where you put it.' },
   animV: { title: 'When it appears', items: [S('anim', 'Animation', ANIM_OPTS), R('animMs', 'Speed (slower to the right)', 100, 1500, 50), K('shine', 'A light sweep as it appears')], note: 'When you change verse, only the words cross-fade. The bar stays. The words always come in a moment after the bar.' },
   animC: { title: 'When it appears', items: [S('anim', 'Animation', ANIM_OPTS), R('animMs', 'Speed (slower to the right)', 100, 1500, 50), K('shine', 'A light sweep as it appears'), R('autoHide', 'Take it off by itself after (seconds, 0 = stay)', 0, 60, 1)] },
+  animN: { title: 'When it appears', items: [S('anim', 'Animation', ANIM_OPTS_NAME), R('animMs', 'Speed (slower to the right)', 100, 1500, 50), K('shine', 'A light sweep as it appears'), R('autoHide', 'Take it off by itself after (seconds, 0 = stay)', 0, 60, 1)], note: 'The "line stretches out" animation suits the Underline plate best: the line grows from the left while the words rise, and on the way out the words drop away as the line pulls back.' },
 };
 const LOOK_SPEC = {
-  verse: [SEC.gallery, SEC.shape, SEC.bg, SEC.pic, SEC.verse, SEC.ref, SEC.sizeFull, SEC.animV],
-  name: [SEC.gallery, SEC.shape, SEC.bgPlate, SEC.big, SEC.small, SEC.posSlide, SEC.sizeSlide, SEC.animC],
-  card: [SEC.gallery, SEC.shape, SEC.bg, SEC.pic, SEC.big, SEC.small, SEC.posCard, SEC.sizeFull, SEC.animC],
+  verse: [SEC.gallery, SEC.shape, SEC.bg, SEC.verse, SEC.ref, SEC.sizeFull, SEC.animV],
+  name: [SEC.gallery, SEC.shape, SEC.bgPlate, SEC.big, SEC.small, SEC.posSlide, SEC.sizeSlide, SEC.animN],
+  card: [SEC.gallery, SEC.shape, SEC.bg, SEC.big, SEC.small, SEC.posCard, SEC.sizeFull, SEC.animC],
 };
 const specKey = (slot) => (slot === 'verse' ? 'verse' : slot === 'name' ? 'name' : 'card');
 const pageOf = (slot) => (slot === 'name' ? 'name' : 'card');
@@ -628,7 +605,15 @@ function saveLook(slot) {
 }
 onLookGeom = (slot) => saveLook(slot); // the slide-in remembers where you put it
 function loadLooks() {
-  Object.keys(LOOK_DEFAULTS).forEach((s) => setLook(s, readStore('look.' + s, {}))); // old saved looks are tidied by setLook
+  // Version 3: every kind now has its own different animation and no light sweep by default, so older saved animation choices are dropped once.
+  let tidy = false;
+  try { tidy = localStorage.getItem('looksVersion') !== '3'; } catch (e) { /* ignore */ }
+  Object.keys(LOOK_DEFAULTS).forEach((sl) => {
+    const o = readStore('look.' + sl, {});
+    if (tidy) { delete o.anim; delete o.animMs; delete o.shine; }
+    setLook(sl, o); // old saved looks are tidied by setLook
+  });
+  if (tidy) { try { localStorage.setItem('looksVersion', '3'); Object.keys(LOOK_DEFAULTS).forEach((sl) => localStorage.setItem('look.' + sl, JSON.stringify(looks[sl]))); } catch (e) { /* ignore */ } }
   buildLookControls('name');
 }
 function mk(tag, cls, html) { const e = document.createElement(tag); if (cls) e.className = cls; if (html !== undefined) e.innerHTML = html; return e; }
@@ -649,10 +634,7 @@ function ctlEl(slot, spec) {
   wrap.appendChild(mk('label', '', spec.l));
   if (spec.t === 'select') {
     input = mk('select'); spec.opts.forEach(([v, n]) => input.add(new Option(n, v))); input.value = st[spec.k] === null ? '' : st[spec.k];
-    input.onchange = () => {
-      if (spec.special === 'bg') { if (input.value) applyBg(input.value, [slot]); else { st.bgId = null; if (st.preset === 'image') st.preset = 'classic'; st.showText = true; saveLook(slot); buildLookControls(slot); } return; }
-      st[spec.k] = input.value; saveLook(slot);
-    };
+    input.onchange = () => { st[spec.k] = input.value; saveLook(slot); };
   } else if (spec.t === 'range') {
     input = mk('input'); input.type = 'range'; input.min = spec.min; input.max = spec.max; input.step = spec.step; input.value = st[spec.k];
     input.oninput = () => { st[spec.k] = Number(input.value); saveLook(slot); };
@@ -669,27 +651,28 @@ const THUMB_ITEM = (slot) => {
   if (slot === 'name') return { id: -12, type: 'name', name: 'Pastor John Smith', title: 'Senior Pastor' };
   return Object.assign({ id: -13, type: 'card' }, cardFields(slot, true));
 };
-function drawDesignThumb(cv, slot, style, imgId) {
+function drawDesignThumb(cv, slot, style) {
   const ctx = cv.getContext('2d'), g = ctx.createLinearGradient(0, 0, 0, cv.height);
   g.addColorStop(0, '#6a8199'); g.addColorStop(1, '#2a3541'); ctx.fillStyle = g; ctx.fillRect(0, 0, cv.width, cv.height);
   const st = Object.assign({}, style);
-  if (imgId) { st.preset = 'image'; st.bgId = imgId; st.showText = !(bgEntry(imgId) || {}).hasText; st.imageFit = slot === 'name' ? 'cover' : 'stretch'; }
   withStyle(slot, st, () => {
     ctx.save();
     if (slot === 'name') { const k = cv.width / 880; ctx.scale(k, k); ctx.translate(-40, -585); } else { ctx.scale(cv.width / W, cv.height / 540); ctx.translate(0, -540); } // only the bottom half of the screen matters
     const box = lookBox(slot), it = Object.assign(THUMB_ITEM(slot), box);
-    if (slot !== 'name') { const bh = st.preset === 'image' && imgId ? bandHeight(bgEntry(imgId)) : box.h; it.h = bh; it.y = H - bh - looks[slot].boxBottom; it.x = 0; it.w = 1920; }
+    if (slot !== 'name') { it.h = box.h; it.y = H - box.h - looks[slot].boxBottom; it.x = 0; it.w = 1920; }
     else it.w = plateLayout(ctx, looks.name, it.name, it.title, it.h).W;
     drawItem(ctx, it, 1, 0, null);
     ctx.restore();
   });
 }
+// Choosing a design. LOWER_THIRD_STYLE_SCOPE (looks.js) decides whether it restyles every full lower third or only this one.
 function applyDesign(slot, d, all) {
-  const slots = slot === 'name' ? ['name'] : all ? FULL_SLOTS : [slot];
+  const everyFull = LOWER_THIRD_STYLE_SCOPE === 'all' || all;
+  const slots = slot === 'name' ? ['name'] : everyFull ? FULL_SLOTS : [slot];
   slots.forEach((s) => {
-    const st = looks[s], keepAnim = all && s !== slot, p = PRESETS.find((x) => x.id === d.s.preset);
+    const st = looks[s], p = PRESETS.find((x) => x.id === d.s.preset);
     const own = Object.assign({}, d.s);
-    if (keepAnim) { delete own.anim; delete own.animMs; delete own.shine; } // each kind keeps its own way of moving
+    if (STYLE_KEEPS_OWN_ANIMATION || (all && s !== slot)) { delete own.anim; delete own.animMs; delete own.shine; } // every kind keeps its own way of moving
     Object.assign(st, own);
     st.radius = p ? p.radius : 0; st.showText = true;
     if (s !== 'name') { st.boxX = 0; st.boxW = 1920; if (st.boxH < 200 || st.boxH > 400) st.boxH = LOOK_DEFAULTS[s].boxH; }
@@ -697,14 +680,43 @@ function applyDesign(slot, d, all) {
   });
   buildLookControls(slot);
 }
+// ----- picture backgrounds: ready-made and imported (imported ones are permanent and shared by every project) -----
+async function loadLtLibrary() {
+  try { const r = await window.api.ltList(); setCustomBgs(r.items); } catch (e) { log('Could not read the lower-third pictures: ' + e.message); }
+}
+function applyPicture(slot, e, all) {
+  const everyFull = LOWER_THIRD_STYLE_SCOPE === 'all' || all;
+  const slots = everyFull ? FULL_SLOTS : [slot];
+  slots.forEach((s) => {
+    const st = looks[s], light = e.tone === 'light';
+    Object.assign(st, { preset: 'image', bgId: e.id, imageFit: 'stretch', radius: 0, showText: !e.hasText, opacity: 100 });
+    Object.assign(st, light ? { nameColor: '#14161a', textColor: '#14161a', titleColor: '#4a5266' } : { nameColor: '#ffffff', textColor: '#ffffff', titleColor: '#d6dbe6' });
+    st.boxX = 0; st.boxW = 1920; st.boxH = Math.max(120, Math.min(460, bandHeight(e)));
+    saveLook(s); resetLookGeometry(s);
+  });
+  buildLookControls(slot);
+}
+async function importPictures(slot) {
+  const r = await window.api.ltImport();
+  setCustomBgs(r.items);
+  if (r.failed && r.failed.length) banner('Could not import: ' + r.failed.join(', '));
+  if (r.added && r.added.length) log('Imported ' + r.added.length + ' lower-third picture(s)');
+  buildLookControls(slot);
+}
+async function removePicture(slot, e) {
+  const r = await window.api.ltRemove(e.id);
+  setCustomBgs(r.items);
+  FULL_SLOTS.forEach((s) => { if (looks[s].bgId === e.id) { setLook(s, looks[s]); saveLook(s); resetLookGeometry(s); } }); // anything using it goes back to its own design
+  buildLookControls(slot);
+}
 function galleryEl(slot) {
   const wrap = mk('div'), isName = slot === 'name';
   let all = false;
-  if (!isName) {
+  if (!isName && LOWER_THIRD_STYLE_SCOPE !== 'all') {
     const l = mk('label', 'check'), cb = mk('input'); cb.type = 'checkbox';
     l.appendChild(cb); l.appendChild(document.createTextNode(' Use the design I click for ALL full lower thirds (each one keeps its own animation)'));
     cb.onchange = () => { all = cb.checked; }; wrap.appendChild(l);
-  }
+  } else if (!isName) wrap.appendChild(mk('div', 'small', 'Choosing a design here restyles every full lower third. Each one keeps its own animation.'));
   const designs = isName ? DESIGNS_NAME : DESIGNS_FULL, st = looks[slot];
   const groups = [...new Set(designs.map((d) => d.group))];
   const tile = (name, on, paint, onclick) => {
@@ -720,11 +732,34 @@ function galleryEl(slot) {
     });
     wrap.appendChild(g);
   });
-  if (!isName) { // the pictures, shown the same way
+  if (!isName) {
     wrap.appendChild(mk('div', 'ilabel gl', 'Pictures'));
     const g = mk('div', 'gallery');
-    bgLib.forEach((e) => g.appendChild(tile(e.name, st.preset === 'image' && st.bgId === e.id, (cv) => { drawDesignThumb(cv, slot, looks[slot], e.id); const im = bgImage(e.id); if (im && !im.complete) im.addEventListener('load', () => drawDesignThumb(cv, slot, looks[slot], e.id), { once: true }); }, () => applyBg(e.id, all ? FULL_SLOTS : [slot]))));
+    bgLib.forEach((e) => {
+      const on = st.preset === 'image' && st.bgId === e.id;
+      const b = tile(e.name, on, (cv) => {
+        const draw = () => {
+          const ctx = cv.getContext('2d'), gr = ctx.createLinearGradient(0, 0, 0, cv.height);
+          gr.addColorStop(0, '#6a8199'); gr.addColorStop(1, '#2a3541'); ctx.fillStyle = gr; ctx.fillRect(0, 0, cv.width, cv.height);
+          const im = bgImage(e.id), k = cv.width / 1920;
+          if (im && im.complete && im.naturalWidth) { const sh = bandHeight(e) * k; ctx.drawImage(im, 0, cv.height - sh, cv.width, sh); }
+        };
+        draw();
+        const im = bgImage(e.id); if (im && !im.complete) im.addEventListener('load', draw, { once: true });
+      }, () => applyPicture(slot, e, all));
+      if (e.custom) {
+        const x = mk('span', 'gx', 'Remove'); x.title = 'Remove this picture from the library';
+        x.onclick = (ev) => { ev.stopPropagation(); if (x.dataset.sure) { removePicture(slot, e); return; } x.dataset.sure = '1'; x.textContent = 'Click again to remove'; setTimeout(() => { x.dataset.sure = ''; x.textContent = 'Remove'; }, 3000); };
+        b.appendChild(x);
+      }
+      g.appendChild(b);
+    });
     wrap.appendChild(g);
+    const row = mk('div', 'row');
+    const imp = mk('button', 'primary', 'Import picture...'); imp.onclick = () => importPictures(slot);
+    const opn = mk('button', '', 'Open pictures folder'); opn.onclick = () => window.api.ltOpen();
+    row.appendChild(imp); row.appendChild(opn); wrap.appendChild(row);
+    wrap.appendChild(mk('div', 'small', 'Imported pictures are kept by the app (not in your media folder) and are there every time you open it. Best size: 1920 wide, 200 to 460 tall (a PNG with see-through edges works well).'));
   }
   return wrap;
 }
@@ -732,22 +767,15 @@ function shapeEl(slot) {
   const st = looks[slot], isName = slot === 'name';
   const opts = (isName ? NAME_PRESETS : PRESETS).map((p) => [p.id, p.name]);
   const wrap = mk('div', 'ctl'); wrap.appendChild(mk('label', '', isName ? 'Plate layout' : 'Shape of the bar'));
+  if (st.preset === 'image') opts.unshift(['image', 'Picture']);
   const sel = mk('select'); opts.forEach(([v, n]) => sel.add(new Option(n, v))); sel.value = st.preset;
   sel.onchange = () => {
+    if (st.preset === 'image' && sel.value !== 'image') { st.bgId = null; st.showText = true; st.opacity = LOOK_DEFAULTS[slot].opacity; }
     st.preset = sel.value; const p = PRESETS.find((x) => x.id === sel.value); st.radius = p ? p.radius : 0;
-    if (st.preset === 'image' && !st.bgId) { applyBg(LOOK_DEFAULTS[slot].bgId || 'b-dusk', [slot]); return; }
     saveLook(slot); buildLookControls(slot);
   };
   wrap.appendChild(sel);
   wrap.appendChild(mk('div', 'small', isName ? 'Pick a ready-made design above, or change the layout here and then the colours.' : 'Mix your own: pick any shape, then change the colours below.'));
-  return wrap;
-}
-function pictureEl(slot) {
-  const wrap = mk('div');
-  const opts = [['', 'None (use the style above)'], ...bgLib.map((e) => [e.id, e.name])];
-  wrap.appendChild(ctlEl(slot, { k: 'bgId', l: 'Picture behind the words', t: 'select', opts, special: 'bg' }));
-  wrap.appendChild(ctlEl(slot, { k: 'imageFit', l: 'How the picture fills the box', t: 'select', opts: [['stretch', 'Stretch to the box'], ['cover', 'Fill the box (crops the edges)'], ['fit', 'Keep its shape']] }));
-  const row = mk('div', 'row'); const go = mk('button', '', 'Add or manage pictures...'); go.onclick = () => showPage('pictures'); row.appendChild(go); wrap.appendChild(row);
   return wrap;
 }
 function buildLookControls(slot) {
@@ -758,7 +786,6 @@ function buildLookControls(slot) {
     const card = mk('div', 'card'); card.appendChild(mk('h3', '', sec.title));
     if (sec.gallery) card.appendChild(galleryEl(slot));
     else if (sec.shape) card.appendChild(shapeEl(slot));
-    else if (sec.picture) card.appendChild(pictureEl(slot));
     else {
       const grid = mk('div', 'ctlgrid');
       sec.items.forEach((it) => grid.appendChild(ctlEl(slot, it)));
@@ -783,153 +810,19 @@ function drawLookSample(page, now) {
   if (slot === 'verse') it = Object.assign({ id: -1, type: 'verse', ref: 'John 3:16 (KJV)', text: 'For God so loved the world, that he gave his only begotten Son, that whosoever believeth in him should not perish, but have everlasting life.' }, b);
   else if (slot === 'name') it = Object.assign({ id: -2, type: 'name', name: 'Pastor John Smith', title: 'Senior Pastor' }, b, { w: slideWidth('Pastor John Smith', 'Senior Pastor') });
   else it = Object.assign({ id: -3, type: 'card' }, b, cardFields(qcKind, true));
-  appearAt[it.id] = lookReplay[page]; // so the sample replays the staggered entrance and light sweep
-  const dur = st.anim === 'none' ? 1 : st.animMs, p = Math.min(1, (now - lookReplay[page]) / dur);
+  appearAt[it.id] = lookReplay[page]; // so the sample replays the staggered entrance
+  // Replay shows the way in, a short hold, then the way out, and then the finished look stays up while you adjust it.
+  const dur = st.anim === 'none' ? 1 : st.animMs, t = now - lookReplay[page], hold = 1800;
+  let p = 1, dir = 'in', draw = true;
+  if (t < dur) p = t / dur;
+  else if (t >= dur + hold && t < dur * 2 + hold) { p = (t - dur - hold) / dur; dir = 'out'; }
   ctx.save(); ctx.scale(cv.width / W, cv.height / H);
-  drawItem(ctx, it, p, 0, { p, dir: 'in' });
+  if (draw) drawItem(ctx, it, p, 0, { p, dir });
   ctx.restore();
 }
 $('lsSampleReplay').onclick = () => { lookReplay.name = performance.now(); };
 $('lsSampleReset').onclick = () => { setLook('name', {}); saveLook('name'); buildLookControls('name'); };
 $('btnLowerLook').onclick = () => { openSettings('cards'); };
-
-// ---------- Pictures: the library of backgrounds (ready-made and yours) ----------
-let idbHandle = null;
-function idbOpen() {
-  return new Promise((res) => {
-    try { const r = indexedDB.open('churchswitcher', 1); r.onupgradeneeded = () => r.result.createObjectStore('bgs', { keyPath: 'id' }); r.onsuccess = () => res(r.result); r.onerror = () => res(null); } catch (e) { res(null); }
-  });
-}
-const idbReq = (mode, fn) => new Promise((res) => {
-  if (!idbHandle) { res(null); return; }
-  try { const tx = idbHandle.transaction('bgs', mode), r = fn(tx.objectStore('bgs')); tx.oncomplete = () => res(r && r.result !== undefined ? r.result : true); tx.onerror = () => res(null); } catch (e) { res(null); }
-});
-async function loadUserBgs() {
-  idbHandle = await idbOpen();
-  const all = (await idbReq('readonly', (s) => s.getAll())) || [];
-  if (Array.isArray(all)) all.forEach((r) => bgLib.push({ id: r.id, name: r.name, src: URL.createObjectURL(r.blob), w: r.w, h: r.h, hasText: !!r.hasText, tone: r.tone, builtin: false, blob: r.blob }));
-}
-const loadImg = (url) => new Promise((res, rej) => { const im = new Image(); im.onload = () => res(im); im.onerror = () => rej(new Error('That picture could not be opened.')); im.src = url; });
-
-// Finds the lower third in a picture: a full-frame overlay with the painted band at the bottom is cropped to the band.
-async function analyzeImage(file) {
-  const url = URL.createObjectURL(file), im = await loadImg(url);
-  const w = im.naturalWidth, h = im.naturalHeight;
-  const cv = document.createElement('canvas'); cv.width = w; cv.height = h;
-  const cx = cv.getContext('2d', { willReadFrequently: true }); cx.drawImage(im, 0, 0);
-  const d = cx.getImageData(0, 0, w, h).data;
-  let minX = w, maxX = -1, minY = h, maxY = -1, hasAlpha = false, lum = 0, n = 0;
-  for (let y = 0; y < h; y++) for (let x = 0; x < w; x++) {
-    const a = d[(y * w + x) * 4 + 3];
-    if (a < 250) hasAlpha = true;
-    if (a > 8) {
-      if (x < minX) minX = x; if (x > maxX) maxX = x; if (y < minY) minY = y; if (y > maxY) maxY = y;
-      if ((x + y) % 7 === 0) { const i = (y * w + x) * 4; lum += 0.299 * d[i] + 0.587 * d[i + 1] + 0.114 * d[i + 2]; n++; }
-    }
-  }
-  if (maxX < 0) throw new Error('That picture is empty.');
-  const bw = maxX - minX + 1, bh = maxY - minY + 1;
-  let kind = 'picture', box = { x: 0, y: 0, w, h };
-  if (hasAlpha && bw >= w * 0.9 && maxY >= h - 3 && bh < h * 0.6 && bw / bh > 2.5) { kind = 'overlay'; box = { x: minX, y: minY, w: bw, h: bh }; }
-  else if (w / h > 2.5) kind = 'strip';
-  return { url, im, kind, box, tone: n && lum / n > 170 ? 'light' : 'dark', name: file.name.replace(/\.[^.]+$/, '') };
-}
-async function saveCropped(a, hasText) {
-  const k = Math.min(1, 1920 / a.box.w), cv = document.createElement('canvas');
-  cv.width = Math.round(a.box.w * k); cv.height = Math.round(a.box.h * k);
-  cv.getContext('2d').drawImage(a.im, a.box.x, a.box.y, a.box.w, a.box.h, 0, 0, cv.width, cv.height);
-  const blob = await new Promise((r) => cv.toBlob(r, 'image/png'));
-  const id = 'u-' + Date.now() + Math.floor(Math.random() * 1000);
-  const rec = { id, name: a.name, blob, w: cv.width, h: cv.height, hasText, tone: a.tone };
-  const ok = await idbReq('readwrite', (s) => s.put(rec));
-  if (!ok) banner('The picture could not be saved for next time, but you can use it until the app closes.');
-  bgLib.push({ id, name: a.name, src: URL.createObjectURL(blob), w: rec.w, h: rec.h, hasText, tone: a.tone, builtin: false, blob });
-  return id;
-}
-// Use a picture for some (or all) of the lower third kinds.
-function applyBg(id, slots) {
-  const e = bgEntry(id);
-  if (!e) return;
-  const light = e.tone === 'light', strip = e.w / e.h > 2.5;
-  slots.filter((s) => s !== 'name').forEach((slot) => { // the slide-in uses its own small plates, never pictures
-    const st = looks[slot];
-    st.preset = 'image'; st.bgId = id; st.radius = 0; st.showText = !e.hasText;
-    if (strip) { st.boxX = 0; st.boxW = 1920; st.boxH = bandHeight(e); st.boxBottom = 0; st.imageFit = 'stretch'; } // full lower thirds run from left to right
-    if (slot === 'verse') { st.textColor = light ? '#14161a' : '#ffffff'; st.refColor = light ? '#2a55c9' : LOOK_DEFAULTS.verse.refColor; }
-    else { st.nameColor = light ? '#14161a' : '#ffffff'; st.titleColor = light ? '#3a4254' : LOOK_DEFAULTS[slot].titleColor; }
-    saveLook(slot); resetLookGeometry(slot);
-  });
-  if (rootFor(qcKind) && slots.includes(qcKind)) buildLookControls(qcKind);
-  renderBgGrid();
-}
-const slotsUsing = (id) => FULL_SLOTS.filter((s) => looks[s].preset === 'image' && looks[s].bgId === id);
-let selBg = null;
-function renderBgGrid() {
-  const box = $('bgGrid');
-  box.innerHTML = '';
-  bgLib.forEach((e) => {
-    const b = mk('button', 'bgtile' + (e.id === selBg ? ' on' : ''));
-    const used = slotsUsing(e.id);
-    b.innerHTML = `<span class="bgthumb"><img src="${e.src}" alt=""></span><b>${esc(e.name)}</b><small>${e.builtin ? 'Ready-made' : 'Yours'}${e.hasText ? ' - has words' : ''}${used.length ? ' - used by ' + used.length : ''}</small>`;
-    b.onclick = () => { selBg = e.id; renderBgGrid(); };
-    box.appendChild(b);
-  });
-  const e = bgEntry(selBg);
-  $('bgActions').hidden = !e;
-  if (e) { const u = slotsUsing(e.id).map((s) => SLOT_NAMES[s]); $('bgSelName').textContent = e.name + (u.length ? '  -  used by: ' + u.join(', ') : '  -  not used yet'); $('bgDel').hidden = e.builtin; }
-  renderBgChips();
-}
-// the same pictures, one click away on the Videos & Photos tab
-function renderBgChips() {
-  const box = $('bgChips');
-  if (!box) return;
-  box.innerHTML = '';
-  bgLib.forEach((e) => {
-    const b = mk('button', 'bgchip', `<img src="${e.src}" alt=""><span>${esc(e.name)}</span>`);
-    b.title = 'Choose where to use ' + e.name;
-    b.onclick = () => askWhere(e);
-    box.appendChild(b);
-  });
-}
-const wslotHtml = (checked) => `<div class="wgrid">${['verse', ...CARD_SLOTS].map((s) => `<label class="check"><input type="checkbox" class="wslot" value="${s}"${checked.includes(s) ? ' checked' : ''}> ${SLOT_NAMES[s]}</label>`).join('')}</div>`;
-const tickedSlots = () => [...document.querySelectorAll('.wslot:checked')].map((x) => x.value);
-// "Where do you want to use this picture?" - used from the Pictures page and from the Videos & Photos tab
-function askWhere(e) {
-  showModal('Use ' + e.name, `<img class="modalpic" src="${e.src}" alt=""><p>Tick where to use this picture:</p>${wslotHtml(slotsUsing(e.id))}`, [
-    { label: 'Cancel', cls: 'ghost' },
-    { label: 'Use for everything', onClick: () => { selBg = e.id; applyBg(e.id, FULL_SLOTS); } },
-    { label: 'Use for ticked', cls: 'primary', onClick: () => { const t = tickedSlots(); selBg = e.id; if (t.length) applyBg(e.id, t); } },
-  ]);
-}
-// A picture was added: say what was found in it, then let the person choose where it goes.
-function offerPicture(a, f, opts) {
-  const msg = { overlay: 'I found the lower third in this picture and cropped it to just that part.', strip: 'This is a wide strip, so it works as a lower third as it is.', picture: 'This picture is not very wide, so it will be stretched across the lower third.' }[a.kind];
-  const keep = () => saveCropped(a, $('mdText').checked);
-  const btns = [{ label: 'Cancel', cls: 'ghost' }];
-  if (opts && opts.fromMedia) btns.push({ label: 'Use as a normal photo', onClick: () => addClipFile(f, true) });
-  btns.push({ label: 'Just add to my list', onClick: async () => { selBg = await keep(); renderBgGrid(); } });
-  btns.push({ label: 'Use for everything', onClick: async () => { const id = await keep(); selBg = id; applyBg(id, FULL_SLOTS); } });
-  btns.push({ label: 'Use for ticked', cls: 'primary', onClick: async () => { const t = tickedSlots(); const id = await keep(); selBg = id; if (t.length) applyBg(id, t); else renderBgGrid(); } });
-  showModal('Lower third picture', `<p>${msg}</p><img class="modalpic" src="${a.url}" alt=""><div class="check-line"><label class="check"><input type="checkbox" id="mdText"> It already has words in it (do not write on top)</label></div><p>Where should it be used?</p>${wslotHtml([])}`, btns);
-}
-$('btnBgAdd').onclick = () => $('bgFile').click();
-$('bgFile').onchange = async () => {
-  const f = $('bgFile').files[0]; $('bgFile').value = '';
-  if (!f) return;
-  try { offerPicture(await analyzeImage(f), f, {}); } catch (e) { banner(e.message); }
-};
-$('bgAll').onclick = () => applyBg(selBg, FULL_SLOTS);
-$('bgVerse').onclick = () => applyBg(selBg, ['verse']);
-$('bgCards').onclick = () => applyBg(selBg, CARD_SLOTS);
-$('bgWhere').onclick = () => { const e = bgEntry(selBg); if (e) askWhere(e); };
-$('bgDel').onclick = async () => {
-  const e = bgEntry(selBg);
-  if (!e || e.builtin) return;
-  slotsUsing(e.id).forEach((s) => { const st = looks[s]; st.bgId = LOOK_DEFAULTS[s].bgId; st.preset = LOOK_DEFAULTS[s].preset; st.showText = true; saveLook(s); });
-  await idbReq('readwrite', (s) => s.delete(e.id));
-  bgLib.splice(bgLib.indexOf(e), 1); selBg = null; renderBgGrid();
-  if (rootFor(qcKind)) buildLookControls(qcKind);
-};
 
 // ---------- Quick cards and the QR code ----------
 const CARD_DEFAULTS = {
@@ -967,7 +860,12 @@ function serviceEndAt() {
   return d.getTime();
 }
 getServiceEnd = serviceEndAt;
-function updateServiceLabel() { $('serviceTimeLabel').textContent = cardCfg.serviceTime ? 'Counts down to ' + cardCfg.serviceTime : 'Set the time in Settings'; }
+// The Until-service and Give buttons only show when Settings has what they need (a start time, a QR link).
+function updateServiceLabel() { $('serviceTimeLabel').textContent = cardCfg.serviceTime ? 'Counts down to ' + cardCfg.serviceTime : ''; updateQuickButtons(); }
+function updateQuickButtons() {
+  $('qcService').hidden = !String(cardCfg.serviceTime || '').trim();
+  $('qcGive').hidden = !String(cardCfg.giveUrl || '').trim();
+}
 document.querySelectorAll('.qcard').forEach((b) => {
   b.onclick = (e) => {
     if (e.target.tagName === 'INPUT') return;
@@ -984,35 +882,35 @@ $('btnMsgAdd').onclick = () => {
 };
 $('cardMinutes').value = cardCfg.soonMinutes;
 $('cardMinutes').onchange = () => { cardCfg.soonMinutes = Number($('cardMinutes').value) || 5; saveCards(); };
-// QR code: type a link, press Show. The card draws the QR code and writes the link on it.
-$('qrLabel').value = cardCfg.giveA; $('qrUrl').value = cardCfg.giveUrl;
-$('qrLabel').oninput = () => { cardCfg.giveA = $('qrLabel').value; saveCards(); };
-$('qrUrl').oninput = () => { cardCfg.giveUrl = $('qrUrl').value; saveCards(); };
-$('btnQrShow').onclick = () => {
-  if (!$('qrUrl').value.trim()) { $('qrUrl').focus(); banner('Type the link first, then press Show QR.'); return; }
-  cardCfg.giveUrl = $('qrUrl').value.trim(); cardCfg.giveA = $('qrLabel').value.trim() || 'Give'; saveCards();
-  pushCard(cardFields('give'));
-};
-$('qrUrl').addEventListener('keydown', (e) => { if (e.key === 'Enter') $('btnQrShow').click(); });
+// QR code: the words and the link are set in Settings > QR code. The Give (QR) button on the Lower Thirds tab shows once a link is set.
+function loadQrFields() { $('qrLabel').value = cardCfg.giveA || ''; $('qrSmall').value = cardCfg.giveB || ''; $('qrUrl').value = cardCfg.giveUrl || ''; }
+[['qrLabel', 'giveA'], ['qrSmall', 'giveB'], ['qrUrl', 'giveUrl']].forEach(([id, key]) => {
+  $(id).addEventListener('input', () => { cardCfg[key] = $(id).value; saveCards(); updateQuickButtons(); lookReplay.card = performance.now() - 5000; });
+});
+$('btnQrLook').onclick = () => { qcKind = 'give'; lookReplay.card = performance.now(); openSettings('cards'); buildCardsPage(); };
+loadQrFields(); updateQuickButtons();
 const CARD_KINDS = [['verse', 'Bible verse'], ['welcome', 'Welcome'], ['thanks', 'Thank you'], ['countdown', 'Service starting'], ['follow', 'Follow us'], ['give', 'Give (QR)'], ['message', 'Your own message']];
 const CARD_TEXT = {
   verse: [],
   welcome: [['welcomeA', 'Big line'], ['welcomeB', 'Small line']],
   thanks: [['thanksA', 'Big line'], ['thanksB', 'Small line']],
-  countdown: [['soonLabel', 'Words above the countdown'], ['serviceTime', 'Time the service starts (for "Until service starts")', 'time']],
+  countdown: [['soonLabel', 'Words above the countdown'], ['serviceTime', 'Time the service starts (leave empty to hide the Until service starts button)', 'time']],
   follow: [['followTitle', 'Title'], ['yt', 'YouTube name (leave empty to skip)'], ['fb', 'Facebook name'], ['ig', 'Instagram name']],
-  give: [['giveA', 'Big word'], ['giveB', 'Small line'], ['giveUrl', 'Link for the QR code (like https://yourchurch.org/give)']],
+  give: [],
   message: [],
 };
 function buildCardsPage() {
   const root = $('qcSampleControls');
   root.innerHTML = '';
   const textCard = mk('div', 'card'); textCard.appendChild(mk('h3', '', 'Words for: ' + SLOT_NAMES[qcKind]));
-  if (!CARD_TEXT[qcKind].length) textCard.appendChild(mk('div', 'small', qcKind === 'verse' ? 'The words come from the Bible tab. Here you choose how the verse looks.' : 'You type this one on the Lower Thirds tab each time you use it.'));
+  if (qcKind === 'give') {
+    textCard.appendChild(mk('div', 'small', 'The words and the link for the QR code are set in Settings > QR code. Here you choose how the card looks and moves.'));
+    const row = mk('div', 'row'), go = mk('button', '', 'Open the QR code settings...'); go.onclick = () => openSettings('qr'); row.appendChild(go); textCard.appendChild(row);
+  } else if (!CARD_TEXT[qcKind].length) textCard.appendChild(mk('div', 'small', qcKind === 'verse' ? 'The words come from the Bible tab. Here you choose how the verse looks.' : 'You type this one on the Lower Thirds tab each time you use it.'));
   CARD_TEXT[qcKind].forEach(([key, label, kind]) => {
     const w = mk('div', 'ctl'); w.appendChild(mk('label', '', label));
     const inp = mk('input'); inp.type = kind || 'text'; inp.value = cardCfg[key] || '';
-    inp.oninput = () => { cardCfg[key] = inp.value; if (key === 'serviceTime') updateServiceLabel(); saveCards(); lookReplay.card = performance.now() - 5000; if (key === 'giveUrl') $('qrUrl').value = inp.value; if (key === 'giveA') $('qrLabel').value = inp.value; };
+    inp.oninput = () => { cardCfg[key] = inp.value; if (key === 'serviceTime') updateServiceLabel(); saveCards(); lookReplay.card = performance.now() - 5000; };
     w.appendChild(inp); textCard.appendChild(w);
   });
   root.appendChild(textCard);
@@ -1051,7 +949,7 @@ $('vidAudio').addEventListener('change', applyAudioMode);
 // ---------- media engine: shelf, Play (Stream / TV / Both), queue, end-of-video ----------
 function mkPlayer() {
   const el = document.createElement('video');
-  el.playsInline = true; el.preload = 'auto';
+  el.playsInline = true; el.preload = 'auto'; el.crossOrigin = 'anonymous'; // files from the media folder need this so the Output stays clean
   const p = { el, clip: null, node: null };
   el.addEventListener('ended', () => { if (p === curPlayer()) onClipEnded(); });
   ['play', 'pause', 'timeupdate', 'loadedmetadata'].forEach((ev) => el.addEventListener(ev, () => { if (p === curPlayer()) updateMediaUI(); }));
@@ -1166,9 +1064,9 @@ function skipQueue() {
 // ----- shelf -----
 function makeThumb(c) {
   return new Promise((res) => {
-    if (c.kind === 'image') { const im = new Image(); im.onload = () => { c.thumb = im; res(); }; im.onerror = () => { c.bad = true; res(); }; im.src = c.url; return; }
+    if (c.kind === 'image') { const im = new Image(); im.crossOrigin = 'anonymous'; im.onload = () => { c.thumb = im; res(); }; im.onerror = () => { c.bad = true; res(); }; im.src = c.url; return; }
     const v = document.createElement('video');
-    v.muted = true; v.preload = 'auto';
+    v.muted = true; v.preload = 'auto'; v.crossOrigin = 'anonymous';
     v.onloadedmetadata = () => { c.dur = v.duration; v.currentTime = Math.min(0.1, (v.duration || 1) / 2); };
     v.onseeked = () => {
       const cv = document.createElement('canvas'); cv.width = 640; cv.height = 360;
@@ -1188,18 +1086,10 @@ function addClipFile(f, pickMe) {
   renderClips();
   makeThumb(c).then(() => { c.ready = true; renderClips(); if (pickMe && !c.bad) selectClip(c.id); });
 }
-// Videos and photos go on the shelf. A picture that is a lower third is recognised and the person is asked where to use it, right here.
-async function addFiles(list) {
+// Videos and photos added by hand go on the shelf too (they stay until the app closes).
+function addFiles(list) {
   const files = [...list].filter((f) => f.type.startsWith('video/') || f.type.startsWith('image/'));
-  let first = true;
-  for (const f of files) {
-    if (f.type.startsWith('image/')) {
-      let a = null;
-      try { a = await analyzeImage(f); } catch (e) { a = null; }
-      if (a && (a.kind === 'overlay' || a.kind === 'strip')) { offerPicture(a, f, { fromMedia: true }); continue; }
-    }
-    addClipFile(f, first); first = false;
-  }
+  files.forEach((f, i) => addClipFile(f, i === 0));
 }
 function selectClip(id) {
   selClipId = id;
@@ -1213,27 +1103,32 @@ function stepClip(d) {
   const i = ready.findIndex((c) => c.id === selClipId);
   selectClip(ready[Math.max(0, Math.min(ready.length - 1, i < 0 ? 0 : i + d))].id);
 }
-function removeClip(id) {
-  if (pb.clip === id || live.items.some((i) => i.clipId === id)) { showModal('That one is in use', '<p>Stop it and press CLEAR ALL first, then remove it.</p>', [{ label: 'OK', cls: 'primary' }]); return; }
+const clipInUse = (id) => pb.clip === id || live.items.some((i) => i.clipId === id);
+function dropClip(id) {
   const c = clipById(id);
-  if (c) URL.revokeObjectURL(c.url);
+  if (!c) return;
+  if (!c.fromFolder) URL.revokeObjectURL(c.url);
   clips.splice(clips.indexOf(c), 1);
   for (let i = queue.length - 1; i >= 0; i--) if (queue[i].clipId === id) queue.splice(i, 1);
   players.forEach((p) => { if (p.clip === id) p.clip = null; });
   if (preview.items.some((i) => i.clipId === id)) { preview.items = preview.items.filter((i) => i.clipId !== id); preview.sel = null; commit(); }
   if (selClipId === id) selClipId = null;
+}
+function removeClip(id) {
+  if (clipInUse(id)) { showModal('That one is in use', '<p>Stop it and press CLEAR ALL first, then remove it.</p>', [{ label: 'OK', cls: 'primary' }]); return; }
+  dropClip(id);
   renderClips(); renderQueue(); updateMediaUI();
 }
 function renderClips() {
   const box = $('clipList');
   box.innerHTML = '';
-  if (!clips.length) { box.innerHTML = '<div class="msg" style="grid-column:1/-1">Press Add files to load videos or photos. They stay loaded until the app closes.</div>'; return; }
+  if (!clips.length) { box.innerHTML = '<div class="msg" style="grid-column:1/-1">Choose a media folder in Settings and its photos and videos appear here by themselves. Or press Add files for one-off files (they stay until the app closes).</div>'; return; }
   clips.forEach((c) => {
     const t = document.createElement('div');
     t.className = 'clip' + (c.id === selClipId ? ' sel' : '');
     const pic = c.thumb ? `<img src="${c.thumb.src}" alt="">` : '<div class="ph">Loading...</div>';
     const meta = c.bad ? 'Could not open' : c.ready ? `Ready${c.kind === 'video' ? ' - ' + fmtMs(c.dur) : ' - photo'}` : 'Loading...';
-    t.innerHTML = `${pic}<div class="cname" title="${esc(c.name)}">${esc(c.name)}</div><div class="cmeta ${c.ready && !c.bad ? 'ok' : ''}">${c.ready && !c.bad ? '&#10003; ' : ''}${meta}</div>${c.kind === 'video' ? '<button class="cq">+ Queue</button>' : ''}<i title="Remove">x</i>`;
+    t.innerHTML = `${pic}<div class="cname" title="${esc(c.name)}">${esc(c.name)}</div><div class="cmeta ${c.ready && !c.bad ? 'ok' : ''}">${c.ready && !c.bad ? '&#10003; ' : ''}${meta}</div>${c.kind === 'video' ? '<button class="cq">+ Queue</button>' : ''}${c.fromFolder ? '' : '<i title="Remove">x</i>'}`;
     t.onclick = (e) => {
       if (e.target.tagName === 'I') { removeClip(c.id); return; }
       if (e.target.classList.contains('cq')) { addToQueue(c.id); return; }
@@ -1242,6 +1137,57 @@ function renderClips() {
     box.appendChild(t);
   });
 }
+
+// ----- media folder: everything in the chosen folder is on the shelf, and it is remembered between runs -----
+let mediaState = { dir: '', exists: false, count: 0 };
+let thumbActive = 0;
+const thumbWaiting = [];
+function queueThumb(c) { // a few at a time, so a big folder does not freeze the app
+  const next = () => {
+    while (thumbActive < 3 && thumbWaiting.length) {
+      const k = thumbWaiting.shift();
+      if (!clipById(k.id)) continue;
+      thumbActive++;
+      makeThumb(k).then(() => { k.ready = true; }).finally(() => { thumbActive--; renderClips(); next(); });
+    }
+  };
+  thumbWaiting.push(c); next();
+}
+function syncFolder(r) {
+  r = r || {};
+  mediaState = { dir: r.dir || '', exists: !!r.exists, count: (r.files || []).length };
+  const want = new Map((r.files || []).map((f, i) => [f.rel, Object.assign({ order: i }, f)]));
+  clips.filter((c) => c.fromFolder && (c.dir !== mediaState.dir || !want.has(c.rel)) && !clipInUse(c.id)).forEach((c) => dropClip(c.id)); // gone from the folder (one that is playing stays until it is stopped)
+  want.forEach((f) => {
+    const have = clips.find((c) => c.fromFolder && c.rel === f.rel && c.dir === mediaState.dir);
+    if (have) { have.order = f.order; return; }
+    const c = { id: clipSeq++, name: f.name, kind: f.kind, url: f.url, rel: f.rel, dir: mediaState.dir, fromFolder: true, order: f.order, dur: 0, thumb: null, ready: false, bad: false };
+    clips.push(c); queueThumb(c);
+  });
+  clips.sort((a, b) => (a.fromFolder ? a.order : 1e6 + a.id) - (b.fromFolder ? b.order : 1e6 + b.id));
+  renderClips(); renderQueue(); updateMediaUI(); updateMediaFolderUI();
+}
+function updateMediaFolderUI() {
+  const m = mediaState;
+  $('mediaFolderNow').textContent = !m.dir ? 'No media folder chosen yet.' : !m.exists ? 'Folder not found: ' + m.dir : `Folder: ${m.dir}  -  ${m.count} photo${m.count === 1 ? '' : 's'} and video${m.count === 1 ? '' : 's'} found`;
+  $('btnMediaFolderGo').textContent = m.dir ? 'Change in Settings' : 'Choose a folder in Settings';
+  if (settingsPage === 'media') showMediaSettings();
+}
+function showMediaSettings() {
+  const m = mediaState, st = $('mediaDirText');
+  st.textContent = !m.dir ? 'No folder chosen yet' : !m.exists ? 'Folder not found: ' + m.dir + '  (is the drive connected?)' : m.dir;
+  st.className = 'status ' + (!m.dir ? '' : m.exists ? 'good' : 'bad');
+  const vids = clips.filter((c) => c.fromFolder && c.kind === 'video').length, pics = clips.filter((c) => c.fromFolder && c.kind === 'image').length;
+  $('mediaCount').textContent = m.dir && m.exists ? `Found ${vids} video${vids === 1 ? '' : 's'} and ${pics} photo${pics === 1 ? '' : 's'}.` : '';
+  $('btnMediaOpen').disabled = !m.dir || !m.exists; $('btnMediaClear').disabled = !m.dir; $('btnMediaRescan').disabled = !m.dir;
+}
+$('btnMediaChoose').onclick = async () => { const r = await window.api.mediaChoose(); if (!r.canceled) { syncFolder(r); log('Media folder: ' + (r.dir || 'none')); } };
+$('btnMediaClear').onclick = async () => { syncFolder(await window.api.mediaClear()); log('Media folder cleared'); };
+$('btnMediaRescan').onclick = async () => syncFolder(await window.api.mediaScan());
+$('btnMediaOpen').onclick = () => window.api.mediaOpen();
+$('btnMediaFolderGo').onclick = () => openSettings('media');
+window.api.on('media:changed', (r) => syncFolder(r)); // files were added or removed in the folder
+async function initMedia() { syncFolder(await window.api.mediaGet()); }
 
 // ----- queue -----
 function addToQueue(id) { const c = clipById(id || selClipId); if (!c || c.bad || c.kind !== 'video') return; queue.push({ q: qSeq++, clipId: c.id }); renderQueue(); }
@@ -1326,13 +1272,62 @@ function mkScreen(d) {
   const cv = document.createElement('canvas'); cv.width = 1920; cv.height = 1080;
   return { id: d.id, label: d.label, isMain: d.isMain, open: false, armed: 'live', sent: 'off', img: null, mute: false, link: { pc: null, ready: false }, cv, ctx: cv.getContext('2d'), last: 0 };
 }
+// Names and hidden screens are remembered between runs.
+const screenPrefs = readStore('screenPrefs', {});
+const saveScreenPrefs = () => { try { localStorage.setItem('screenPrefs', JSON.stringify(screenPrefs)); } catch (e) { /* ignore */ } };
+const isHiddenScreen = (s) => !!(screenPrefs[s.id] && screenPrefs[s.id].hidden);
+const visibleScreens = () => [...screens.values()].filter((s) => !isHiddenScreen(s));
+function screenName(s) { const p = screenPrefs[s.id]; return (p && p.name) || screenShort(s); }
+function pickActiveScreen() {
+  const cur = screens.get(activeId);
+  if (cur && !isHiddenScreen(cur)) return;
+  const vis = visibleScreens();
+  const first = vis.find((s) => !s.isMain) || vis[0];
+  activeId = first ? first.id : null;
+}
 async function refreshScreens() {
   const list = await window.api.listDisplays();
   list.forEach((d) => { const s = screens.get(d.id); if (s) { s.label = d.label; s.isMain = d.isMain; } else screens.set(d.id, mkScreen(d)); });
   [...screens.keys()].forEach((id) => { if (!list.some((d) => d.id === id)) { stopLink(screens.get(id), false); screens.delete(id); } });
-  if (!screens.has(activeId)) { const first = list.find((d) => !d.isMain) || list[0]; activeId = first ? first.id : null; }
-  renderScreens(); updateDispUI();
+  pickActiveScreen();
+  renderScreens(); renderScreenManager(); updateDispUI();
 }
+function renameScreen(s) {
+  showModal('Rename this screen', `<p>${esc(screenShort(s))}</p><input type="text" id="renameIn" maxlength="40" placeholder="${esc(screenShort(s))}" value="${esc((screenPrefs[s.id] && screenPrefs[s.id].name) || '')}"><div class="small">Leave it empty to go back to the original name.</div>`, [
+    { label: 'Cancel', cls: 'ghost' },
+    { label: 'Save name', cls: 'primary', onClick: () => {
+      const v = $('renameIn').value.trim().slice(0, 40);
+      screenPrefs[s.id] = Object.assign({}, screenPrefs[s.id], { name: v });
+      saveScreenPrefs(); renderScreens(); renderScreenManager(); updateDispUI();
+    } },
+  ]);
+  const input = $('renameIn');
+  input.onkeydown = (e) => { if (e.key === 'Enter') { const ok = $('mBtns').lastChild; if (ok) ok.click(); } }; // Enter saves
+  input.focus(); input.select();
+}
+function setScreenHidden(s, hide) {
+  if (hide && s.open) closeScreen(s); // a hidden screen is never left showing something
+  screenPrefs[s.id] = Object.assign({}, screenPrefs[s.id], { hidden: hide });
+  saveScreenPrefs(); pickActiveScreen();
+  renderScreens(); renderScreenManager(); updateDispUI(); updateMediaUI();
+}
+function renderScreenManager() {
+  const box = $('screenManage');
+  if (!box) return;
+  box.innerHTML = '';
+  if (!screens.size) box.innerHTML = '<div class="small">No monitors found.</div>';
+  screens.forEach((s) => {
+    const hid = isHiddenScreen(s), c = mk('div', 'scard manage' + (hid ? ' dim' : ''));
+    c.innerHTML = `<div class="sname">${esc(screenName(s))}${hid ? ' <em>hidden</em>' : ''}</div><div class="sstat">${esc(screenShort(s))}${s.isMain ? ' - this is the main screen' : ''}</div>`;
+    const acts = mk('div', 'sacts');
+    const rn = mk('button', 'small', 'Rename'); rn.onclick = () => renameScreen(s);
+    const hd = mk('button', 'small', hid ? 'Show' : 'Hide'); hd.onclick = () => setScreenHidden(s, !hid);
+    acts.appendChild(rn); acts.appendChild(hd); c.appendChild(acts);
+    box.appendChild(c);
+  });
+}
+$('btnScreensManage').onclick = () => openSettings('screens');
+$('btnScreensRefresh').onclick = refreshScreens;
 function drawBars(ctx, w, h) {
   const cols = ['#fff', '#ff0', '#0ff', '#0f0', '#f0f', '#f00', '#00f'];
   cols.forEach((c, i) => { ctx.fillStyle = c; ctx.fillRect(i * w / 7, 0, w / 7 + 1, h * 0.7); });
@@ -1444,7 +1439,7 @@ function applyScreen(s, interactive) {
   pushScreen(s);
   if (isPicture(src)) { if (!s.link.pc) startLink(s); } else stopLink(s);
   applyAudioMode(); updatePills();
-  log(`External display ${s.label}: ${SRC_NAMES[src]}`);
+  log(`External display ${screenName(s)}: ${SRC_NAMES[src]}`);
   renderScreens(); updateDispUI(); updateMediaUI();
 }
 function sendScreen(s) {
@@ -1458,9 +1453,10 @@ function renderScreens() {
   const box = $('screenList');
   box.innerHTML = '';
   if (!screens.size) box.innerHTML = '<div class="small">No monitors found.</div>';
-  screens.forEach((s) => {
+  else if (!visibleScreens().length) box.innerHTML = '<div class="small">All screens are hidden. Show them again in Settings &gt; Screens.</div>';
+  visibleScreens().forEach((s) => {
     const c = mk('div', 'scard' + (s.id === activeId ? ' on' : ''));
-    c.innerHTML = `<div class="sname"><i class="dot${s.open ? ' blue' : ''}"></i>${esc(screenShort(s))}</div><div class="sstat">${s.isMain ? 'This screen - ' : ''}${s.open ? 'Showing: ' + SRC_NAMES[s.sent] : 'Off'}</div>`;
+    c.innerHTML = `<div class="sname"><i class="dot${s.open ? ' blue' : ''}"></i>${esc(screenName(s))}</div><div class="sstat">${s.isMain ? 'This screen - ' : ''}${s.open ? 'Showing: ' + SRC_NAMES[s.sent] : 'Off'}</div>`;
     const b = mk('button', s.open ? '' : 'primary', s.open ? 'Close' : 'Open');
     b.onclick = (e) => { e.stopPropagation(); if (s.open) closeScreen(s); else openScreen(s); };
     c.appendChild(b);
@@ -1477,7 +1473,7 @@ function updateDispUI() {
   $('dispSendSub').textContent = !s ? 'No screen' : s.armed === s.sent && s.open ? `${SRC_NAMES[s.armed]} is on this screen` : `Put ${SRC_NAMES[s.armed]} on this screen`;
   $('dispNow').textContent = n ? `${n} screen${n > 1 ? 's' : ''} on` : 'Off';
   $('tvDot').className = 'dot' + (s && s.open ? ' blue' : '');
-  $('tvNote').textContent = !s ? 'No external monitor was found.' : s.open ? `${screenShort(s)} is showing: ${SRC_NAMES[s.sent]}. This picture is what SEND will put up.` : `${screenShort(s)} is off. Press Open on it in the list.`;
+  $('tvNote').textContent = !s ? (screens.size ? 'All screens are hidden. Show one again in Settings > Screens.' : 'No external monitor was found.') : s.open ? `${screenName(s)} is showing: ${SRC_NAMES[s.sent]}. This picture is what SEND will put up.` : `${screenName(s)} is off. Press Open on it in the list.`;
   $('btnDisplay').classList.toggle('live', n > 0);
 }
 document.querySelectorAll('#viewTV .srcs button').forEach((b) => { b.onclick = () => { const s = activeScreen(); if (!s) return; s.armed = b.dataset.src; updateDispUI(); updateMediaUI(); }; });
@@ -1541,6 +1537,7 @@ const startText = () => (recordOnly() ? 'START RECORDING' : 'START STREAM');
 const stopText = () => (recordOnly() ? 'STOP RECORDING' : 'STOP STREAM');
 function effectiveDest() {
   if (recordOnly()) return 'record';
+  if (ytState.signedIn) return 'youtube'; // once connected, YouTube is the destination and the manual choices are hidden
   const m = $('destMode').value;
   if (m === 'file') return 'file';
   if (m === 'rtmp') return $('url').value.trim() && $('key').value.trim() ? 'rtmp' : 'none';
@@ -1721,18 +1718,20 @@ function showSummary() {
 async function refreshYt() {
   const r = await window.api.ytStatus();
   if (r.ok) ytState = { hasClient: r.hasClient, signedIn: r.signedIn, channel: r.channel };
-  const info = $('ytInfo');
-  if (ytState.signedIn) { setStatus('ytInfo', `Connected as ${ytState.channel || 'your channel'}. New streams are created automatically.`, 'good'); }
-  else if (!ytState.hasClient) setStatus('ytInfo', 'One-time setup needed first: see YouTube connection on this page.', 'warn');
+  if (ytState.signedIn) setStatus('ytInfo', `Connected as ${ytState.channel || 'your channel'}. The connection is saved on this PC and stays after restarts. New streams are created automatically.`, 'good');
+  else if (!ytState.hasClient) setStatus('ytInfo', 'One-time setup needed first: see YouTube connection below.', 'warn');
   else setStatus('ytInfo', 'Not signed in. Press the button to connect your channel.', 'warn');
-  $('btnYtSign').textContent = ytState.signedIn ? 'Sign out' : 'Sign in with YouTube';
+  $('btnYtSign').textContent = ytState.signedIn ? 'Disconnect YouTube' : 'Sign in with YouTube';
+  $('btnYtSign').className = ytState.signedIn ? '' : 'primary';
   $('ytClientInfo').textContent = ytState.hasClient ? 'Google client saved.' : 'No Google client saved yet.';
+  $('ytSetupCard').hidden = ytState.signedIn; // the one-time setup and the manual stream choices are out of the way once connected
+  $('destCard').hidden = ytState.signedIn;
 }
 async function updateTitlePreview() { $('ytTitlePreview').textContent = 'Title will be: ' + (await window.api.ytExpand($('ytTitle').value)); }
 $('ytTitle').addEventListener('input', updateTitlePreview);
 $('btnYtSign').onclick = async () => {
   if (ytState.signedIn) { await window.api.ytSignOut(); await refreshYt(); return; }
-  if (!ytState.hasClient) { openSettings('stream'); return; }
+  if (!ytState.hasClient) { openSettings('stream'); $('ytSetupCard').scrollIntoView({ block: 'center' }); $('ytClientId').focus(); return; }
   setStatus('ytInfo', 'Opening your browser. Sign in there, then come back here...', 'warn');
   const r = await window.api.ytSignIn();
   if (!r.ok) banner(r.error);
@@ -1751,12 +1750,11 @@ $('btnLogs').onclick = () => window.api.openLogs();
 // ---------- start up ----------
 (async () => {
   commit();
-  renderLower();
-  await loadUserBgs();
+  await loadLtLibrary(); // imported pictures must be known before the saved looks are read
   loadLooks();
   buildCardsPage();
-  renderBgGrid();
   applyTargetSeg(); renderClips(); renderQueue(); updateMediaUI();
+  await initMedia();
   renderBooks(); renderChapters(); renderVerses(); renderSaved();
   applyMute();
   setDock('Bible'); // the Bible page is the default page

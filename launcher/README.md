@@ -36,7 +36,11 @@ Updates are offered at **startup** (before the apps open), when **quitting**, on
 | `main.js` | Starts the launcher, or, when `RED_RUN_APP` is set, runs one app (`runner.js`). |
 | `lib/launcher.js` | First-launch install, startup choice, update checks and prompts, launcher self-update, tray, window. |
 | `lib/installer.js` | Unpacks an app zip, keeps the previous version, runs setup (ffmpeg), installs a new launcher. |
-| `lib/runtime.js` | Opens apps on their screen, adds the tab bar when two share a screen. |
+| `lib/runtime.js` | Opens and closes apps on their screen, and hands Redcam's page to Redcast's window when they share a screen. Closing hides the window at once and finishes in the background. |
+
+**Windows.** Every app opens in its own window (own taskbar icon and window controls), maximized on the screen you chose for it in the launcher. Two apps on the same screen simply open two windows. **Start both** opens them at the same time.
+
+| `lib/brand.js` | Gives each app its own copy of the Electron program named and iconed like the app (`%APPDATA%\Red Launcher\runtime`), so Windows Firewall shows "Redcast" and its icon, not "Electron". Uses `rcedit`. |
 | `lib/github.js` | Finds the newest `<name>-v<version>` release, reads `min-launcher`, downloads files. |
 
 Everything on a PC lives in `%APPDATA%\Red Launcher` (`apps`, `logs`, `settings.json`). Redcast keeps its own data where it always was.

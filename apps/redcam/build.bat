@@ -34,6 +34,7 @@ if exist build rmdir /s /q build
 %PY% -m PyInstaller --noconfirm --clean --onedir --name ptz-backend ^
   --distpath backend-dist --workpath build ^
   --icon icon.ico ^
+  --version-file version-info.txt ^
   --add-data "index.html;." --add-data "icon.ico;." ^
   --hidden-import keyboard._winkeyboard ^
   app.py

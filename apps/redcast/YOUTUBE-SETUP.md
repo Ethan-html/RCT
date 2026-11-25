@@ -2,26 +2,26 @@
 
 Do this once, on any computer, with the church's Google account. After that, the app signs in with one button and creates each Sunday's broadcast by itself.
 
-**Why is this needed?** Google requires every program that talks to YouTube to be registered. There is no cost. You are registering Church Switcher as the church's own private program. The menu names in Google's console change now and then, so if a name below is slightly different, look for the closest match.
+**Why is this needed?** Google requires every program that talks to YouTube to be registered. There is no cost. You are registering Redcast as the church's own private program. The menu names in Google's console change now and then, so if a name below is slightly different, look for the closest match.
 
 ## Part 1: Register the app with Google (about 15 minutes)
 
 1. Go to **console.cloud.google.com** and sign in with the church's Google account (the one that owns the YouTube channel).
-2. Click the project picker at the top and choose **New project**. Name it `Church Switcher` and create it.
+2. Click the project picker at the top and choose **New project**. Name it `Redcast` and create it.
 3. Open **APIs & Services > Library**, search for **YouTube Data API v3**, and click **Enable**.
 4. Open **APIs & Services > OAuth consent screen** (it may be called **Google Auth Platform**).
    - User type: **External** (or **Internal** if the church uses Google Workspace, which is simpler).
-   - App name: `Church Switcher`. Add the church email as the support and contact email.
+   - App name: `Redcast`. Add the church email as the support and contact email.
    - Add this scope: `.../auth/youtube` (it appears as "Manage your YouTube account").
    - Under **Test users**, add the church Google account.
-5. **Important:** while the app is in "Testing" status, Google makes the sign-in expire after **7 days**, so you would have to sign in again every week. To avoid that, click **Publish app** (set it to "In production"). Google will show a "has not been verified" warning on sign-in. For a private app used by one church, you click **Advanced** and then **Go to Church Switcher** to continue. That is expected.
+5. **Important:** while the app is in "Testing" status, Google makes the sign-in expire after **7 days**, so you would have to sign in again every week. To avoid that, click **Publish app** (set it to "In production"). Google will show a "has not been verified" warning on sign-in. For a private app used by one church, you click **Advanced** and then **Go to Redcast** to continue. That is expected.
 6. Open **APIs & Services > Credentials > Create credentials > OAuth client ID**.
-   - Application type: **Desktop app**. Name: `Church Switcher Desktop`.
+   - Application type: **Desktop app**. Name: `Redcast Desktop`.
    - Copy the **Client ID** and the **Client secret**.
 
 ## Part 2: Connect the app (2 minutes)
 
-1. In Church Switcher, press **Setup**, then **Advanced**.
+1. In Redcast, press **Setup**, then **Advanced**.
 2. Under **YouTube connection**, paste the Client ID and Client secret, and press **Save**.
 3. Go back to **Setup**. In the YouTube card, press **Sign in with YouTube**.
 4. Your web browser opens. Choose the church account, allow access, and come back to the app. It should say **Connected as (your channel name)**.

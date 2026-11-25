@@ -1,19 +1,20 @@
-// Opens, closes and places the apps, and draws the tab bar when two apps share a screen.
+// Opens, closes and places the apps. Every app opens in its own window, maximized on the screen chosen for it in the
+// launcher (own taskbar icon, own window controls). Two apps on the same screen simply open two windows.
 //   type "electron":       run the app's own main.js in a second copy of this Electron (see runner.js)
 //   type "backend-window": start the app's backend program, then show its page in a window of ours (Redcam)
-const { app, BrowserWindow, screen } = require('electron');
+const { app, BrowserWindow, WebContentsView, screen } = require('electron');
 const { spawn } = require('child_process');
 const fs = require('fs');
 const net = require('net');
 const http = require('http');
 const path = require('path');
 const store = require('./store');
+const brand = require('./brand');
 
-const TAB_H = 34;
-const running = new Map();   // id -> { id, kind: 'proc'|'win', proc, win, port }
-const tabWins = new Map();   // screen index -> BrowserWindow
-const active = {};           // screen index -> id of the tab that is in front
-let hooks = { installed: () => [], name: (id) => id, changed: () => {} };
+const running = new Map();   // id -> { id, kind: 'proc'|'win', proc, win, port }   apps that are open (as far as the person can see)
+const dying = new Map();     // id -> Promise that resolves when a closed app's program has really exited
+const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
+let hooks = { changed: () => {} };
 const init = (h) => { hooks = Object.assign(hooks, h); };
 
 // Screen 1 is always the main display, the rest go left to right.
@@ -26,14 +27,16 @@ function screenOf(id) {
   const i = store.settings.screens[id];
   return Number.isInteger(i) && i < displays().length ? i : 0; // unplugged screen: fall back to the main one
 }
-const groupOn = (idx) => hooks.installed().filter((id) => screenOf(id) === idx);
 function boundsFor(idx) {
   const wa = displays()[idx].workArea;
-  const tab = groupOn(idx).length > 1;
-  return { tab, bounds: { x: wa.x, y: wa.y + (tab ? TAB_H : 0), width: wa.width, height: wa.height - (tab ? TAB_H : 0) } };
+  return { x: wa.x, y: wa.y, width: wa.width, height: wa.height };
 }
 
 const isRunning = (id) => running.has(id);
+// "Starting" = the program was launched but its window is not on screen yet (the first start after an update can take a while).
+const isStarting = (id) => running.has(id) && !running.get(id).ready;
+function markReady(rec) { if (!rec.ready) { rec.ready = true; hooks.changed(); } }
+const isBusy = (id) => running.has(id) || dying.has(id);   // open, or closed but still shutting down in the background
 const killTree = (p) => {
   try { process.platform === 'win32' ? spawn('taskkill', ['/pid', String(p.pid), '/T', '/F'], { windowsHide: true }) : p.kill(); } catch (e) { /* already gone */ }
 };
@@ -69,125 +72,144 @@ function forwardFront(win) {
   win.setAlwaysOnTop(true); win.show(); win.focus(); win.setAlwaysOnTop(false);
 }
 
-function launchElectron(rec, dir, man, bounds, tab) {
-  const env = Object.assign({}, process.env, { RED_RUN_APP: dir, RED_APP_ID: rec.id, RED_BOUNDS: JSON.stringify(bounds), RED_MAXIMIZE: tab ? '0' : '1' });
+async function launchElectron(rec, dir, man, bounds) {
+  const env = Object.assign({}, process.env, { RED_RUN_APP: dir, RED_APP_ID: rec.id, RED_BOUNDS: JSON.stringify(bounds), RED_MAXIMIZE: '1' });
   delete env.ELECTRON_RUN_AS_NODE;
+  // The app's own copy of Electron, named and iconed like the app, so Windows (Firewall prompt, Task Manager) shows
+  // "Redcast" and its icon instead of "Electron".
+  const exe = await brand.exeFor(rec.id, man.name, man.icon ? path.join(dir, man.icon) : null);
+  if (rec.closed) { rec.onStopped && rec.onStopped(); return; }       // closed while the first-time setup above was running
   const log = fs.openSync(path.join(store.LOGS, rec.id + '.log'), 'a');
   const args = app.isPackaged ? [] : [app.getAppPath()];   // unpackaged dev run needs the launcher's own folder
-  const p = spawn(process.execPath, args, { env, cwd: dir, stdio: ['pipe', log, log] });
-  fs.closeSync(log);
+  const p = spawn(exe, args, { env, cwd: dir, stdio: ['pipe', 'pipe', log] });
   rec.kind = 'proc'; rec.proc = p;
   p.stdin.on('error', () => {});
-  p.on('error', () => gone(rec));
-  p.on('exit', () => gone(rec));
+  // stdout carries the app's normal output (goes to its log) and one-line messages for us that start with @@RED@@.
+  let buf = '';
+  p.stdout.on('data', (chunk) => {
+    buf += chunk;
+    let i;
+    while ((i = buf.indexOf('\n')) >= 0) {
+      const line = buf.slice(0, i + 1); buf = buf.slice(i + 1);
+      if (line.startsWith('@@RED@@')) {
+        try { if (JSON.parse(line.slice(7)).cmd === 'ready') markReady(rec); } catch (e) { /* ignore */ }
+      } else { try { fs.writeSync(log, line); } catch (e) { /* log closed */ } }
+    }
+  });
+  setTimeout(() => markReady(rec), 30000);              // never leave the card on "Starting" forever
+  p.stdout.on('error', () => {});
+  const stopped = () => { try { fs.closeSync(log); } catch (e) { /* already closed */ } if (rec.onStopped) rec.onStopped(); gone(rec); };
+  p.on('error', stopped);
+  p.on('exit', stopped);
 }
 
-async function launchBackend(rec, dir, man, bounds, tab) {
+async function launchBackend(rec, dir, man, bounds) {
   const b = man.backend || {};
   const exe = path.join(dir, b.exe);
-  if (!fs.existsSync(exe)) throw new Error(man.name + ' is missing its backend program (' + b.exe + ').');
+  // Dev mode with no built backend: run the Python source directly (needs the packages in requirements.txt).
+  const devPy = store.DEV && !fs.existsSync(exe) && fs.existsSync(path.join(dir, 'app.py'));
+  if (!devPy && !fs.existsSync(exe)) throw new Error(man.name + ' is missing its backend program (' + b.exe + ').');
   const port = await pickPort(b.port || 8080);
   const dataDir = path.join(app.getPath('appData'), man.dataFolder || man.name);
   fs.mkdirSync(dataDir, { recursive: true });
   const env = Object.assign({}, process.env, { [b.portEnv || 'PORT']: String(port), [b.dataDirEnv || 'PTZ_DATA_DIR']: dataDir });
   const log = fs.createWriteStream(path.join(dataDir, 'backend.log'), { flags: 'a' });
-  const p = spawn(exe, [], { env, cwd: path.dirname(exe), windowsHide: true });
+  const p = devPy
+    ? spawn(process.platform === 'win32' ? 'py' : 'python3', process.platform === 'win32' ? ['-3', 'app.py'] : ['app.py'], { env, cwd: dir, windowsHide: true })
+    : spawn(exe, [], { env, cwd: path.dirname(exe), windowsHide: true });
   p.stdout.pipe(log, { end: false }); p.stderr.pipe(log, { end: false });
   rec.kind = 'win'; rec.proc = p; rec.port = port;
   let dead = false;
-  p.on('exit', () => { dead = true; if (rec.win && !rec.win.isDestroyed()) rec.win.destroy(); gone(rec); });
-  p.on('error', () => { dead = true; });
+  p.on('exit', () => { dead = true; if (rec.win && !rec.win.isDestroyed()) rec.win.destroy(); if (rec.onStopped) rec.onStopped(); gone(rec); });
+  p.on('error', () => { dead = true; if (rec.onStopped) rec.onStopped(); });
   try { await waitHttp(port, 40000, () => dead); } catch (e) { killTree(p); throw e; }
+  if (rec.closed) { killTree(p); return; }            // closed while it was still starting
 
   const icon = man.icon ? path.join(dir, man.icon) : undefined;
   const win = new BrowserWindow(Object.assign({}, bounds, {
     show: false, title: man.name, icon, backgroundColor: '#101010', autoHideMenuBar: true,
-    webPreferences: { contextIsolation: true, nodeIntegration: false },
   }));
+  const page = new WebContentsView({ webPreferences: { contextIsolation: true, nodeIntegration: false } });
+  page.setBackgroundColor('#101010');
+  win.contentView.addChildView(page);
   rec.win = win;
+  const layout = () => { if (!win.isDestroyed()) { const [w, h] = win.getContentSize(); page.setBounds({ x: 0, y: 0, width: w, height: h }); } };
+  layout();
+  for (const ev of ['resize', 'maximize', 'unmaximize', 'restore', 'enter-full-screen', 'leave-full-screen']) win.on(ev, layout);
   try { win.setAppDetails({ appId: man.appUserModelId || 'com.red.' + rec.id, appIconPath: icon, appIconIndex: 0, relaunchDisplayName: man.name }); } catch (e) { /* taskbar details are cosmetic */ }
-  win.once('ready-to-show', () => { win.show(); if (!tab) win.maximize(); });
-  win.on('closed', () => killTree(p));
-  win.loadURL('http://127.0.0.1:' + port + '/');
+  let shown = false;
+  const reveal = () => { if (shown || win.isDestroyed()) return; shown = true; win.show(); win.maximize(); page.webContents.focus(); markReady(rec); };
+  page.webContents.once('did-finish-load', reveal);
+  page.webContents.once('did-fail-load', reveal);
+  setTimeout(reveal, 6000);                       // never leave the person waiting on a blank screen
+  win.on('closed', () => { killTree(p); try { page.webContents.close(); } catch (e) { /* gone */ } });
+  page.webContents.loadURL('http://127.0.0.1:' + port + '/');
 }
 
 function gone(rec) {
   if (running.get(rec.id) !== rec) return;
   running.delete(rec.id);
-  updateTabs();
   hooks.changed();
 }
 
 async function launch(id) {
   if (running.has(id)) return focus(id);
+  if (dying.has(id)) {                                // it was just closed: let the old copy finish so the two do not collide
+    await Promise.race([dying.get(id), sleep(8000)]);
+    if (running.has(id)) return focus(id);
+  }
   const ver = store.installedVersion(id);
   if (!ver) throw new Error('Not installed yet.');
   const dir = store.versionDir(id, ver);
   const man = store.readManifest(id, ver);
-  const idx = screenOf(id);
-  const { bounds, tab } = boundsFor(idx);
+  const bounds = boundsFor(screenOf(id));
   const rec = { id, kind: null };
   running.set(id, rec);
   hooks.changed();
   try {
-    if (man.type === 'electron') launchElectron(rec, dir, man, bounds, tab);
-    else if (man.type === 'backend-window') await launchBackend(rec, dir, man, bounds, tab);
+    if (man.type === 'electron') await launchElectron(rec, dir, man, bounds);
+    else if (man.type === 'backend-window') await launchBackend(rec, dir, man, bounds);
     else throw new Error('This app has an unknown type: ' + man.type);
-  } catch (e) { running.delete(id); updateTabs(); hooks.changed(); throw e; }
-  active[idx] = id;
-  if (tab) ensureTabBar(idx);
-  updateTabs();
+  } catch (e) { running.delete(id); hooks.changed(); throw e; }
   hooks.changed();
 }
 
 function focus(id) {
   const rec = running.get(id);
   if (!rec) return;
-  active[screenOf(id)] = id;
   if (rec.win) forwardFront(rec.win);
   else if (rec.proc && rec.proc.stdin.writable) rec.proc.stdin.write(JSON.stringify({ cmd: 'focus' }) + '\n');
-  updateTabs();
 }
 
+// Closing is instant from the person's side: the app is marked closed and its window disappears right away.
+// The program then finishes shutting down in the background (and is forced if it takes too long).
 function close(id) {
   const rec = running.get(id);
   if (!rec) return;
-  if (rec.win) { rec.win.close(); return; }
-  if (rec.proc) {
+  running.delete(id);
+  rec.closed = true;
+  const stopped = new Promise((resolve) => { rec.onStopped = resolve; });
+  dying.set(id, stopped);
+  stopped.then(() => { if (dying.get(id) === stopped) dying.delete(id); });
+  if (rec.win || rec.kind === 'win') {
+    try { if (rec.win && !rec.win.isDestroyed()) rec.win.destroy(); } catch (e) { /* already gone */ }
+    if (rec.proc) killTree(rec.proc); else rec.onStopped();
+  } else if (rec.proc) {
     try { rec.proc.stdin.write(JSON.stringify({ cmd: 'quit' }) + '\n'); } catch (e) { /* fall through to the timer */ }
-    setTimeout(() => { if (running.get(id) === rec) killTree(rec.proc); }, 6000);
-  }
+    setTimeout(() => { if (rec.proc.exitCode === null && !rec.proc.killed) killTree(rec.proc); }, 6000);
+  } else rec.onStopped();                              // never got as far as starting a program
+  hooks.changed();
 }
 
-// ---- tab bar: a thin strip at the top of a screen that two apps share ----
-function tabData(idx) {
-  return groupOn(idx).map((id) => ({ id, name: hooks.name(id), running: running.has(id), active: active[idx] === id }));
+// Resolves once every app that was closed has really exited (or after ms), so updates do not hit files still in use.
+async function waitStopped(ms) {
+  if (!dying.size) return;
+  await Promise.race([Promise.all([...dying.values()]), sleep(ms || 9000)]);
 }
-function ensureTabBar(idx) {
-  if (tabWins.has(idx) || !displays()[idx]) return;
-  const wa = displays()[idx].workArea;
-  const w = new BrowserWindow({
-    x: wa.x, y: wa.y, width: wa.width, height: TAB_H, frame: false, resizable: false, movable: false, minimizable: false, maximizable: false,
-    skipTaskbar: true, focusable: false, hasShadow: false, show: false, backgroundColor: '#1a1a1a',
-    webPreferences: { preload: path.join(__dirname, '..', 'preload.js'), contextIsolation: true, nodeIntegration: false },
-  });
-  w.setAlwaysOnTop(true, 'screen-saver');
-  w.loadFile(path.join(__dirname, '..', 'renderer', 'tabbar.html'), { query: { screen: String(idx) } });
-  w.once('ready-to-show', () => w.showInactive());
-  w.on('closed', () => tabWins.delete(idx));
-  tabWins.set(idx, w);
-}
-function updateTabs() {
-  for (const [idx, w] of tabWins) {
-    const list = tabData(idx);
-    if (!list.some((t) => t.running) || list.length < 2) { w.destroy(); continue; }
-    if (!w.isDestroyed()) w.webContents.send('tabs', list);
-  }
-}
+
 function quitAll() {
   for (const rec of running.values()) if (rec.kind === 'win' && rec.proc) killTree(rec.proc);
-  for (const w of tabWins.values()) if (!w.isDestroyed()) w.destroy();
 }
 const hasBackendApps = () => [...running.values()].some((r) => r.kind === 'win');
 
-module.exports = { init, displays, screenOf, isRunning, launch, focus, close, tabData, updateTabs, quitAll, hasBackendApps };
+module.exports = { init, displays, screenOf, isRunning, isStarting, isBusy, launch, focus, close, waitStopped, quitAll, hasBackendApps };

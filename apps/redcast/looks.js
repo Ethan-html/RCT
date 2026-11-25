@@ -1,6 +1,13 @@
 // looks.js - how Bible verses, lower thirds and quick cards look: styles, designs, text, animation.
 // Full lower thirds (verse and cards) are fixed along the bottom. The slide-in (names) is a small two-line plate you can move.
 
+// ----- internal switches: change these here to change how lower thirds behave later -----
+// 'all'      = choosing a design in Settings restyles EVERY full lower third (verse, welcome, thank you, countdown, follow, give, message).
+// 'selected' = choosing a design only restyles the lower third you are editing (the old behaviour).
+const LOWER_THIRD_STYLE_SCOPE = 'all';
+// true = a design never changes how a lower third moves, so every lower third keeps its own, different animation.
+const STYLE_KEEPS_OWN_ANIMATION = true;
+
 // ----- full-width styles (drawn, no picture needed) -----
 const PRESETS = [
   { id: 'classic', name: 'Classic bar', radius: 0 }, { id: 'modern', name: 'Modern tab', radius: 0 },
@@ -11,7 +18,7 @@ const PRESETS = [
   { id: 'outline', name: 'Outline', radius: 14 }, { id: 'card', name: 'Card', radius: 18 },
   { id: 'gradient', name: 'Fade out', radius: 0 }, { id: 'wave', name: 'Wave', radius: 0 },
   { id: 'bokeh', name: 'Lights', radius: 0 }, { id: 'stripes', name: 'Pinstripes', radius: 0 },
-  { id: 'minimal', name: 'Minimal', radius: 0 }, { id: 'image', name: 'Picture', radius: 0 },
+  { id: 'minimal', name: 'Minimal', radius: 0 },
 ];
 // ----- slide-in plates: small designs made for a name and a title -----
 const NAME_PRESETS = [
@@ -35,6 +42,11 @@ const BUILTIN_BGS = [
   { id: 'b-ex-welcome', name: 'Your example: Welcome', src: 'assets/lowerthirds/example-welcome.png', w: 1920, h: 275, hasText: true },
 ];
 const bgLib = BUILTIN_BGS.map((b) => Object.assign({ builtin: true }, b));
+// Imported pictures are permanent app assets kept by the main process; app.js hands the list over at start-up and after every change.
+function setCustomBgs(items) {
+  for (let i = bgLib.length - 1; i >= 0; i--) if (!bgLib[i].builtin) { delete bgImgs[bgLib[i].id]; bgLib.splice(i, 1); }
+  (items || []).forEach((u) => bgLib.push({ id: u.id, name: u.name, src: u.url, w: u.w, h: u.h, custom: true }));
+}
 const bgImgs = {};
 const bgEntry = (id) => bgLib.find((b) => b.id === id) || null;
 function bgImage(id) {
@@ -42,7 +54,7 @@ function bgImage(id) {
   if (bgImgs[id]) return bgImgs[id];
   const e = bgEntry(id);
   if (!e) return null;
-  const im = new Image(); im.src = e.src; bgImgs[id] = im;
+  const im = new Image(); if (e.custom) im.crossOrigin = 'anonymous'; im.src = e.src; bgImgs[id] = im;
   return im;
 }
 const bandHeight = (e) => Math.round(1920 * e.h / e.w); // how tall a full-width strip is
@@ -82,18 +94,18 @@ const DESIGNS_FULL = [
 const DESIGNS_NAME = [
   DES('plate-navy', 'Navy plate', 'Plates', { preset: 'plate', bg: '#0a1e50', opacity: 92, accent: '#f5b800', anim: 'slide' }),
   DES('plate-charcoal', 'Charcoal plate', 'Plates', { preset: 'plate', bg: '#1b1b1d', opacity: 94, accent: '#ffffff', anim: 'wipe' }),
-  DES('plate-light', 'Light plate', 'Plates', Object.assign({ preset: 'plate', bg: '#f4f5f8', opacity: 96, accent: '#2f6bff', anim: 'slide' }, LIGHT)),
-  DES('duo-red', 'Red two blocks', 'Two lines', { preset: 'duo', bg: '#141414', opacity: 94, accent: '#d7263d', titleColor: '#e8e8e8', anim: 'slide' }),
-  DES('duo-blue', 'Blue two blocks', 'Two lines', { preset: 'duo', bg: '#0f1d3a', opacity: 94, accent: '#2f6bff', titleColor: '#cfd9f2', anim: 'wipe' }),
+  DES('plate-light', 'Light plate', 'Plates', Object.assign({ preset: 'plate', bg: '#f4f5f8', opacity: 96, accent: '#2f6bff', anim: 'curtain' }, LIGHT)),
+  DES('duo-red', 'Red two blocks', 'Two lines', { preset: 'duo', bg: '#141414', opacity: 94, accent: '#d7263d', titleColor: '#e8e8e8', anim: 'slideR' }),
+  DES('duo-blue', 'Blue two blocks', 'Two lines', { preset: 'duo', bg: '#0f1d3a', opacity: 94, accent: '#2f6bff', titleColor: '#cfd9f2', anim: 'drop' }),
   DES('bar2-gold', 'Gold strip', 'Two lines', { preset: 'bar2', bg: '#14141a', opacity: 94, accent: '#d4af37', titleColor: '#1a1405', anim: 'unfold' }),
   DES('tag-orange', 'Orange tag', 'Two lines', { preset: 'tag', bg: '#121820', opacity: 94, accent: '#ff7a1a', titleColor: '#1a0d00', anim: 'rise' }),
-  DES('slant-teal', 'Slanted teal', 'Modern', { preset: 'slant', bg: '#0b1f2a', opacity: 94, accent: '#18c7b0', anim: 'slide' }),
+  DES('slant-teal', 'Slanted teal', 'Modern', { preset: 'slant', bg: '#0b1f2a', opacity: 94, accent: '#18c7b0', anim: 'tilt' }),
   DES('pill-dark', 'Dark pill', 'Modern', { preset: 'pill', bg: '#101216', opacity: 92, accent: '#f5b800', anim: 'zoom' }),
-  DES('pill-light', 'Light pill', 'Modern', Object.assign({ preset: 'pill', bg: '#ffffff', opacity: 96, accent: '#2f6bff', anim: 'zoom' }, LIGHT)),
-  DES('glass-white', 'Glass plate', 'Modern', { preset: 'glassplate', bg: '#1c4fa0', opacity: 70, accent: '#ffffff', shadow: true, anim: 'rise' }),
-  DES('solid-yellow-plate', 'Yellow plate', 'Bold', { preset: 'solidplate', bg: '#ffd400', opacity: 100, accent: '#111111', nameColor: '#111111', titleColor: '#3a3300', anim: 'bounce' }),
-  DES('box-cyan', 'Neon box', 'Bold', { preset: 'box', bg: '#06141c', opacity: 90, accent: '#19e3ff', anim: 'flip' }),
-  DES('underline-white', 'Underline', 'Minimal', { preset: 'underline', accent: '#ffffff', shadow: true, anim: 'fade' }),
+  DES('pill-light', 'Light pill', 'Modern', Object.assign({ preset: 'pill', bg: '#ffffff', opacity: 96, accent: '#2f6bff', anim: 'bounce' }, LIGHT)),
+  DES('glass-white', 'Glass plate', 'Modern', { preset: 'glassplate', bg: '#1c4fa0', opacity: 70, accent: '#ffffff', shadow: true, anim: 'fade' }),
+  DES('solid-yellow-plate', 'Yellow plate', 'Bold', { preset: 'solidplate', bg: '#ffd400', opacity: 100, accent: '#111111', nameColor: '#111111', titleColor: '#3a3300', anim: 'flip' }),
+  DES('box-cyan', 'Neon box', 'Bold', { preset: 'box', bg: '#06141c', opacity: 90, accent: '#19e3ff', anim: 'typewriter' }),
+  DES('underline-white', 'Underline', 'Minimal', { preset: 'underline', accent: '#ffffff', shadow: true, anim: 'line' }),
 ];
 const designById = (id) => DESIGNS_FULL.find((d) => d.id === id) || DESIGNS_NAME.find((d) => d.id === id) || null;
 
@@ -110,17 +122,16 @@ const BASE_STYLE = {
   boxW: 1920, boxH: 280, boxX: 0, boxBottom: 0,
 };
 const fromDesign = (id, extra) => Object.assign({}, BASE_STYLE, designById(id).s, extra || {});
-const cardPicture = (bgId, anim, ms) => ({ preset: 'image', bgId, align: 'center', anim, animMs: ms, shine: true });
-// Out of the box every kind looks and moves differently.
+// Out of the box every kind of lower third and name moves in its own way, and none of them rely on the light sweep.
 const LOOK_DEFAULTS = {
-  verse: fromDesign('modern-dark', { boxH: 300, animMs: 500 }),
-  name: fromDesign('plate-navy', { boxW: 900, boxH: 150, boxX: 100, boxBottom: 110, animMs: 600, shine: true }),
-  welcome: Object.assign({}, BASE_STYLE, cardPicture('b-gold', 'unfold', 750)),
-  thanks: fromDesign('glass-blue', { align: 'center', animMs: 800, shine: true }),
-  countdown: fromDesign('neon-cyan', { align: 'center', animMs: 650, shine: false }),
-  follow: fromDesign('wave-sunset', { align: 'center', animMs: 800, shine: false }),
-  give: fromDesign('angled-teal', { align: 'center', animMs: 650, shine: true }),
-  message: fromDesign('frame-gold', { align: 'center', animMs: 900, shine: false }),
+  verse: fromDesign('modern-dark', { boxH: 300, anim: 'rise', animMs: 550 }),
+  name: fromDesign('plate-navy', { boxW: 900, boxH: 150, boxX: 100, boxBottom: 110, anim: 'slide', animMs: 600 }),
+  welcome: fromDesign('burgundy', { align: 'center', anim: 'unfold', animMs: 750 }),
+  thanks: fromDesign('glass-blue', { align: 'center', anim: 'fade', animMs: 1100 }),
+  countdown: fromDesign('neon-cyan', { align: 'center', anim: 'flip', animMs: 650 }),
+  follow: fromDesign('wave-sunset', { align: 'center', anim: 'bounce', animMs: 800 }),
+  give: fromDesign('angled-teal', { align: 'center', anim: 'curtain', animMs: 700 }),
+  message: fromDesign('frame-gold', { align: 'center', anim: 'typewriter', animMs: 900 }),
 };
 const looks = {}, lookImg = {};
 Object.keys(LOOK_DEFAULTS).forEach((k) => { looks[k] = Object.assign({}, LOOK_DEFAULTS[k]); lookImg[k] = bgImage(looks[k].bgId); });
@@ -137,6 +148,11 @@ let getServiceEnd = () => null; // app.js supplies the service start time
 function setLook(slot, o) {
   if (!LOOK_DEFAULTS[slot]) return;
   const st = Object.assign({}, LOOK_DEFAULTS[slot], o || {});
+  if ((st.preset === 'image' || st.bgId) && !bgEntry(st.bgId)) { // the picture is no longer in the library: go back to this kind's own design
+    const d = LOOK_DEFAULTS[slot];
+    ['preset', 'bg', 'opacity', 'accent', 'radius', 'font', 'textColor', 'nameColor', 'titleColor', 'refColor'].forEach((k) => { st[k] = d[k]; });
+    st.bgId = null; st.imageFit = 'stretch'; st.showText = true;
+  }
   if (slot === 'name' && !isPlate(st.preset)) { st.preset = LOOK_DEFAULTS.name.preset; st.bgId = null; } // the slide-in uses small plates, not pictures or full-width styles
   if (slot !== 'name' && isPlate(st.preset)) st.preset = LOOK_DEFAULTS[slot].preset;
   looks[slot] = st;
@@ -408,7 +424,7 @@ const easeOutCubic = (p) => 1 - Math.pow(1 - clamp01(p), 3);
 const easeOutBack = (p) => { const c = 1.70158, q = clamp01(p) - 1; return 1 + (c + 1) * q * q * q + c * q * q; };
 const sinceAppear = (id) => (appearAt[id] === undefined ? 1e9 : performance.now() - appearAt[id]);
 const stagger = (t, delay, dur) => easeOutCubic((t - delay) / (dur || 450)); // 0 -> 1 after a delay; 1 if it has been on a while
-const ANIMS = ['fade', 'rise', 'slide', 'wipe', 'zoom', 'bounce', 'unfold', 'flip', 'typewriter', 'none'];
+const ANIMS = ['fade', 'rise', 'slide', 'slideR', 'wipe', 'curtain', 'drop', 'tilt', 'zoom', 'bounce', 'unfold', 'flip', 'typewriter', 'line', 'none'];
 // Applies the entrance/exit to the canvas (already saved). Returns how visible the words should be (they come in a little later than the box).
 function beginLookAnim(ctx, st, it, e) {
   if (!e || e.p === undefined || e.p >= 1 || st.anim === 'none') return 1;
@@ -438,6 +454,18 @@ function beginLookAnim(ctx, st, it, e) {
       ctx.globalAlpha *= Math.min(1, v * 2); ctx.translate(it.x, by); ctx.scale(1, Math.max(0.001, v)); ctx.translate(-it.x, -by);
       return clamp01((v - 0.45) / 0.55);
     }
+    case 'slideR': ctx.globalAlpha *= Math.min(1, v * 1.5); ctx.translate((1 - v) * it.w * 0.4, 0); return late; // comes in from the right
+    case 'curtain': { // opens outward from the middle, left and right
+      const cw = it.w * v + 180;
+      ctx.beginPath(); ctx.rect(cx - cw / 2, it.y - 90, cw, it.h + 180); ctx.clip();
+      return clamp01((v - 0.35) / 0.65);
+    }
+    case 'drop': ctx.globalAlpha *= Math.min(1, v * 1.4); ctx.translate(0, -(1 - v) * (it.h + 120)); return late; // lowers in from above
+    case 'tilt': { // swings up around its bottom-left corner
+      ctx.globalAlpha *= Math.min(1, v * 1.6); ctx.translate(it.x, by); ctx.rotate(-(1 - v) * 0.32); ctx.translate(-it.x, -by);
+      return late;
+    }
+    case 'line': return 1; // slide-ins draw this one themselves (line stretches, words rise and drop)
     case 'typewriter': { // the bar opens quickly, then the words type themselves on
       const q = ein ? easeOutCubic(clamp01(p / 0.4)) : 1 - p * p;
       ctx.beginPath(); ctx.rect(it.x - 90, it.y - 90, it.w * q + 90, it.h + 180); ctx.clip();
@@ -605,9 +633,52 @@ function drawPlateBg(ctx, L, ox, oy) {
     ctx.restore();
   });
 }
+// 'line' animation: the line stretches out from the left while the words grow upward.
+// On the way out the words drop out through the bottom while the line pulls back to the left.
+// Going out, the line and the words run on one single clock, so they always finish together.
+const easeInOutCubic = (p) => { p = clamp01(p); return p < 0.5 ? 4 * p * p * p : 1 - Math.pow(-2 * p + 2, 3) / 2; };
+function lineAnimState(e) {
+  if (!e || e.p === undefined || e.p >= 1) return { line: 1, text: 1, ein: true };
+  if (e.dir === 'out') { const k = 1 - easeInOutCubic(e.p); return { line: k, text: k, ein: false }; }
+  return { line: easeOutCubic(e.p / 0.8), text: easeOutCubic((e.p - 0.2) / 0.8), ein: true };
+}
+function drawNameLine(ctx, it, L, e, st) {
+  const a = lineAnimState(e), h = it.h, onTop = st.preset === 'underline', center = st.align === 'center';
+  const left = L.bg.length ? Math.min(...L.bg.map((b) => b.x || 0)) : 0;
+  const right = L.bg.length ? Math.max(...L.bg.map((b) => (b.x || 0) + (b.w || L.W))) : L.W;
+  const paintBg = () => {
+    if (a.line <= 0.002) return;
+    ctx.save();
+    ctx.beginPath(); ctx.rect(it.x + left - 2, it.y - 30, (right - left) * a.line + 2, h + 60); ctx.clip(); // grows out from the left edge
+    drawPlateBg(ctx, L, it.x, it.y);
+    ctx.restore();
+  };
+  if (!onTop) paintBg();
+  const lineY = onTop && L.bg[0] ? it.y + L.bg[0].y : it.y + h; // coming in, the top line of words appears from behind the line
+  ctx.save();
+  ctx.textBaseline = 'middle';
+  shadowOn(ctx, st, h);
+  ctx.textAlign = center ? 'center' : 'left';
+  L.tx.forEach((r) => {
+    const dist = (r.row === 1 ? 0.9 : 0.5) * h, off = (1 - a.text) * dist;
+    if (off >= dist - 0.5 && !a.ein) return; // already gone
+    ctx.save();
+    ctx.beginPath();
+    ctx.rect(it.x - L.W * 0.1, it.y - h * 0.3, L.W * 1.2, (a.ein && a.text < 1 && r.row === 1 ? lineY : it.y + h) - (it.y - h * 0.3));
+    ctx.clip();
+    ctx.font = fontStr(r.w, r.size, st.font); ctx.fillStyle = r.c;
+    const x = it.x + (center ? r.cx + r.cw / 2 : r.x) + st.textX / 100 * L.W;
+    ctx.fillText(r.s, x, it.y + r.y + st.textY / 100 * h + off);
+    ctx.restore();
+  });
+  shadowOff(ctx);
+  ctx.restore();
+  if (onTop) paintBg();
+}
 function drawNameItem(ctx, it, e) {
   const st = looks.name;
   const L = plateLayout(ctx, st, it.name, it.title, it.h);
+  if (st.anim === 'line') { if (st.showText === false) drawPlateBg(ctx, L, it.x, it.y); else drawNameLine(ctx, it, L, e, st); return; }
   const it2 = Object.assign({}, it, { w: L.W }); // the plate is as wide as its words
   const ta = beginLookAnim(ctx, st, it2, e);
   drawPlateBg(ctx, L, it.x, it.y);
@@ -685,7 +756,7 @@ function countdownText(it) {
 }
 // Each kind of card moves in its own way as well as using its own entrance:
 // Welcome: the lettering tightens. Thank you: the words rise slowly. Countdown: it ticks each second.
-// Follow us: rings pulse around the icons. Give: a scan line passes over the QR code. Your message: types itself on.
+// Follow us: rings pulse around the icons. Give: a faint, slow glow drifts over the QR code now and then. Your message: types itself on.
 function drawCardItem(ctx, it, e) {
   const slot = slotOf(it), st = looks[slot];
   const ta = beginLookAnim(ctx, st, it, e), tf = typeFrac(st, e);
@@ -765,7 +836,7 @@ function drawCardItem(ctx, it, e) {
   } else if (it.kind === 'give') {
     const hasQr = !!(it.url && String(it.url).trim());
     const q = h * 0.82, qx = it.x + it.w - q - h * 0.28, qy = it.y + (h - q) / 2;
-    const g0 = ctx.globalAlpha, pop = stagger(t, 300, 500), sc = (0.7 + 0.3 * easeOutBack(clamp01((t - 300) / 500))) * (t > 1500 ? pulse : 1);
+    const g0 = ctx.globalAlpha, pop = stagger(t, 300, 500), sc = 0.7 + 0.3 * easeOutBack(clamp01((t - 300) / 500)); // the code settles in once and then stays still
     if (show) {
       ctx.textAlign = 'left';
       const tx = it.x + Math.max(h * 0.3, 90) + (st.preset === 'image' ? 110 : st.preset === 'split' ? splitW(h) : st.preset === 'angled' ? h * 0.36 : 0), mw = (hasQr ? qx : it.x + it.w) - tx - h * 0.3;
@@ -789,11 +860,14 @@ function drawCardItem(ctx, it, e) {
       const url = /^[a-z][a-z0-9+.-]*:/i.test(String(it.url).trim()) ? String(it.url).trim() : 'https://' + String(it.url).trim();
       if (!drawQr(ctx, url, 0, 0, q)) { ctx.fillStyle = '#fff'; ctx.fillRect(0, 0, q, q); }
       ctx.shadowColor = 'transparent';
-      if (t > 900) { // a scan line passes over the code
-        const sy = ((now / 1900) % 1) * q;
-        ctx.save(); rrect(ctx, 0, 0, q, q, q * 0.06); ctx.clip();
-        const g = ctx.createLinearGradient(0, sy - 18, 0, sy + 18); g.addColorStop(0, hexA(st.accent, 0)); g.addColorStop(0.5, hexA(st.accent, 70)); g.addColorStop(1, hexA(st.accent, 0));
-        ctx.fillStyle = g; ctx.fillRect(0, sy - 18, q, 36); ctx.restore();
+      if (t > 1500) { // a faint glow drifts slowly down the code once every 10 seconds, then it rests
+        const cyc = 10000, span = 0.4, ph = (now % cyc) / cyc;
+        if (ph < span) {
+          const k = ph / span, sy = easeInOutCubic(k) * (q + q * 0.3) - q * 0.15, soft = q * 0.16, fade = Math.sin(k * Math.PI);
+          ctx.save(); rrect(ctx, 0, 0, q, q, q * 0.06); ctx.clip();
+          const g = ctx.createLinearGradient(0, sy - soft, 0, sy + soft); g.addColorStop(0, hexA(st.accent, 0)); g.addColorStop(0.5, hexA(st.accent, 16 * fade)); g.addColorStop(1, hexA(st.accent, 0));
+          ctx.fillStyle = g; ctx.fillRect(0, sy - soft, q, soft * 2); ctx.restore();
+        }
       }
       ctx.restore();
     }

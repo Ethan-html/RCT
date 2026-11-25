@@ -52,7 +52,9 @@ function create(deps) {
     if (safeStorage && safeStorage.isEncryptionAvailable()) buf = Buffer.concat([Buffer.from([1]), safeStorage.encryptString(json)]);
     else buf = Buffer.concat([Buffer.from([0]), Buffer.from(json, 'utf8')]);
     fs.mkdirSync(path.dirname(file), { recursive: true });
-    fs.writeFileSync(file, buf);
+    const tmp = file + '.tmp';
+    fs.writeFileSync(tmp, buf, { mode: 0o600 }); // only this user can read it, and it is encrypted with the Windows account when possible
+    fs.renameSync(tmp, file); // written whole or not at all, so a crash never leaves a broken sign-in
   }
   load();
 
@@ -83,7 +85,7 @@ function create(deps) {
   }
 
   async function signIn() {
-    if (!data.clientId || !data.clientSecret) throw new Error('Add the Google client ID and secret first (Advanced > YouTube connection).');
+    if (!data.clientId || !data.clientSecret) throw new Error('Add the Google client ID and secret first (Settings > Stream & recording > YouTube connection).');
     const verifier = b64url(crypto.randomBytes(48));
     const challenge = b64url(crypto.createHash('sha256').update(verifier).digest());
     const state = b64url(crypto.randomBytes(16));
@@ -102,7 +104,7 @@ function create(deps) {
           const bad = err || !code || u.searchParams.get('state') !== state;
           res.writeHead(200, { 'Content-Type': 'text/html; charset=utf-8' });
           res.end(`<html><body style="font-family:Segoe UI,Arial;background:#101317;color:#eee;text-align:center;padding-top:80px">
-            <h2>${bad ? 'Sign-in did not finish' : 'Signed in'}</h2><p>${bad ? 'You can close this tab and try again in Church Switcher.' : 'You can close this tab and go back to Church Switcher.'}</p></body></html>`);
+            <h2>${bad ? 'Sign-in did not finish' : 'Signed in'}</h2><p>${bad ? 'You can close this tab and try again in Redcast.' : 'You can close this tab and go back to Redcast.'}</p></body></html>`);
           clearTimeout(timer);
           srv.close();
           if (bad) reject(new Error(err ? `Sign-in was cancelled or refused (${err}).` : 'Sign-in response was not valid.'));
@@ -120,7 +122,7 @@ function create(deps) {
       code: result.code, client_id: data.clientId, client_secret: data.clientSecret,
       redirect_uri: result.redirect, grant_type: 'authorization_code', code_verifier: verifier,
     });
-    if (!tok.refresh_token) throw new Error('Google did not return a long-lived sign-in. Remove Church Switcher from your Google account permissions and try again.');
+    if (!tok.refresh_token) throw new Error('Google did not return a long-lived sign-in. Remove Redcast from your Google account permissions and try again.');
     data.refreshToken = tok.refresh_token;
     access = { token: tok.access_token, exp: Date.now() + (tok.expires_in || 3600) * 1000 };
     data.channel = '';
@@ -144,9 +146,15 @@ function create(deps) {
   async function accessToken() {
     if (access.token && Date.now() < access.exp - 60000) return access.token;
     if (!data.refreshToken) throw new Error('Not signed in to YouTube.');
-    const tok = await tokenRequest({
-      client_id: data.clientId, client_secret: data.clientSecret, refresh_token: data.refreshToken, grant_type: 'refresh_token',
-    });
+    let tok;
+    try {
+      tok = await tokenRequest({
+        client_id: data.clientId, client_secret: data.clientSecret, refresh_token: data.refreshToken, grant_type: 'refresh_token',
+      });
+    } catch (err) {
+      if (err.code === 'invalid_grant') { data.refreshToken = ''; data.channel = ''; save(); } // the sign-in was revoked: ask for a new one
+      throw err;
+    }
     access = { token: tok.access_token, exp: Date.now() + (tok.expires_in || 3600) * 1000 };
     return access.token;
   }
@@ -176,10 +184,10 @@ function create(deps) {
   async function ensureStream() {
     const list = await api('GET', '/liveStreams?part=snippet,cdn,status&mine=true&maxResults=50');
     const items = (list.items || []).filter((s) => s.cdn && s.cdn.ingestionType === 'rtmp' && s.cdn.ingestionInfo);
-    const pick = items.find((s) => s.snippet && s.snippet.title === 'Church Switcher') || items[0];
+    const pick = items.find((s) => s.snippet && (s.snippet.title === 'Redcast' || s.snippet.title === 'Church Switcher')) || items[0];
     if (pick) return pick;
     return api('POST', '/liveStreams?part=snippet,cdn,contentDetails,status', {
-      snippet: { title: 'Church Switcher' },
+      snippet: { title: 'Redcast' },
       cdn: { frameRate: 'variable', ingestionType: 'rtmp', resolution: 'variable' },
       contentDetails: { isReusable: true },
     });

@@ -24,15 +24,32 @@ const icon = man.icon ? nativeImage.createFromPath(path.join(dir, man.icon)) : n
 // Put the app's FIRST window on the screen chosen in the launcher. Later windows (for example Redcast's
 // TV output) are left alone: they have their own screen setting inside the app.
 let first = null;
+// Messages to the launcher: one line on stdout. Everything else the app prints goes to its log file.
+const tell = (m) => { try { process.stdout.write('@@RED@@' + JSON.stringify(m) + '\n'); } catch (e) { /* launcher gone */ } };
 app.on('browser-window-created', (_e, win) => {
   if (first) return;
   first = win;
+  // Tell the launcher the window is really on screen, so its card says "Running" only once there is something to see.
+  let told = false;
+  const ready = () => { if (!told) { told = true; tell({ cmd: 'ready' }); } };
+  win.once('ready-to-show', ready);
+  win.webContents.once('did-finish-load', ready);
   try {
     if (icon && !icon.isEmpty()) win.setIcon(icon);
     if (bounds) win.setBounds(bounds);
     if (process.env.RED_MAXIMIZE === '1') win.maximize();
   } catch (e) { /* placement is best effort */ }
 });
+
+// Closing: the window disappears right away, and the app finishes shutting down in the background.
+let closing = false;
+function fastQuit() {
+  if (closing) return;
+  closing = true;
+  for (const w of BrowserWindow.getAllWindows()) { try { w.hide(); } catch (e) { /* already gone */ } }
+  app.quit();                                               // lets the app stop its own work (Redcast stops ffmpeg here)
+  setTimeout(() => app.exit(0), 5000);                      // if something holds it open, do not wait forever
+}
 
 function bringToFront() {
   const w = first && !first.isDestroyed() ? first : BrowserWindow.getAllWindows()[0];
@@ -53,7 +70,7 @@ try {
       try {
         const m = JSON.parse(line);
         if (m.cmd === 'focus') bringToFront();
-        if (m.cmd === 'quit') app.quit();
+        if (m.cmd === 'quit') fastQuit();
       } catch (e) { /* ignore bad lines */ }
     }
   });

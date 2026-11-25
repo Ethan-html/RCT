@@ -1,5 +1,6 @@
 // Main process. The app's name lives in package.json ("productName"): change it there and it changes everywhere.
-const { app, BrowserWindow, ipcMain, screen, session, shell, safeStorage, dialog } = require('electron');
+const { app, BrowserWindow, ipcMain, screen, session, shell, safeStorage, dialog, protocol, net, nativeImage } = require('electron');
+const { pathToFileURL } = require('url');
 const ytModule = require('./yt');
 const { spawn, execFile } = require('child_process');
 const path = require('path');
@@ -10,6 +11,13 @@ const APP_NAME = (require('./package.json').productName || 'Redcast');
 app.setName(APP_NAME);
 // Keep saved settings, pictures and the YouTube sign-in where they always were, so renaming the app never loses them.
 app.setPath('userData', path.join(app.getPath('appData'), 'church-switcher-poc'));
+
+// Photos and videos from the chosen media folder are served through this private address, so the pictures can be drawn
+// onto the Output without the browser marking it as unsafe (which would blank the stream).
+protocol.registerSchemesAsPrivileged([
+  { scheme: 'redcast-media', privileges: { standard: true, secure: true, supportFetchAPI: true, stream: true, corsEnabled: true } },
+  { scheme: 'redcast-lt', privileges: { standard: true, secure: true, supportFetchAPI: true, corsEnabled: true } }, // imported lower-third pictures
+]);
 
 // Keep rendering at full speed even when windows are covered by another window (e.g. the TV window).
 app.commandLine.appendSwitch('disable-renderer-backgrounding');
@@ -26,6 +34,9 @@ let logDir = null;
 let recDir = null;
 let recoveredFromCrash = false;
 let yt = null;
+let mediaDir = ''; // the media folder chosen in Settings (saved in config.json, so it survives restarts)
+let mediaWatcher = null;
+let mediaTimer = null;
 let lastCpu = 0;
 const ffStats = { frame: 0, fps: 0, bitrate: 0, drop: 0, dup: 0, speed: 0, running: false };
 
@@ -134,6 +145,127 @@ ipcMain.on('rtc:signal', (e, p) => {
     if (id !== null && mainWin && !mainWin.isDestroyed()) mainWin.webContents.send('rtc:signal', { id, msg: p.msg });
   }
 });
+
+// ---------- App settings kept by the main process (config.json in the app's data folder) ----------
+function configPath() { return path.join(app.getPath('userData'), 'config.json'); }
+function readConfig() { try { return JSON.parse(fs.readFileSync(configPath(), 'utf8')) || {}; } catch (e) { return {}; } }
+function writeConfig(patch) {
+  const next = Object.assign(readConfig(), patch);
+  try {
+    fs.mkdirSync(path.dirname(configPath()), { recursive: true });
+    const tmp = configPath() + '.tmp';
+    fs.writeFileSync(tmp, JSON.stringify(next, null, 2));
+    fs.renameSync(tmp, configPath()); // written whole or not at all
+  } catch (e) { /* the setting still works until the app closes */ }
+  return next;
+}
+
+// ---------- Media folder: every photo and video in it shows up on the Videos & Photos shelf ----------
+const VIDEO_EXT = new Set(['.mp4', '.m4v', '.mov', '.webm', '.ogv', '.mkv']);
+const IMAGE_EXT = new Set(['.jpg', '.jpeg', '.png', '.gif', '.webp', '.bmp', '.avif']);
+const MAX_MEDIA_FILES = 2000;
+const mediaUrl = (rel) => 'redcast-media://files/' + rel.split('/').map(encodeURIComponent).join('/');
+
+function scanMedia() {
+  if (!mediaDir) return { ok: true, dir: '', files: [], exists: false };
+  if (!fs.existsSync(mediaDir)) return { ok: true, dir: mediaDir, files: [], exists: false };
+  const files = [];
+  const walk = (dir, rel, depth) => {
+    let entries = [];
+    try { entries = fs.readdirSync(dir, { withFileTypes: true }); } catch (e) { return; }
+    entries.sort((a, b) => a.name.localeCompare(b.name, undefined, { numeric: true, sensitivity: 'base' }));
+    for (const en of entries) {
+      if (files.length >= MAX_MEDIA_FILES) return;
+      if (en.name.startsWith('.')) continue;
+      const r = rel ? rel + '/' + en.name : en.name;
+      if (en.isDirectory()) { if (depth < 3) walk(path.join(dir, en.name), r, depth + 1); continue; }
+      const ext = path.extname(en.name).toLowerCase();
+      const kind = VIDEO_EXT.has(ext) ? 'video' : IMAGE_EXT.has(ext) ? 'image' : null;
+      if (kind) files.push({ rel: r, name: path.basename(en.name, ext), kind, url: mediaUrl(r) });
+    }
+  };
+  walk(mediaDir, '', 0);
+  return { ok: true, dir: mediaDir, files, exists: true };
+}
+function watchMedia() {
+  if (mediaWatcher) { try { mediaWatcher.close(); } catch (e) { /* ignore */ } mediaWatcher = null; }
+  if (!mediaDir || !fs.existsSync(mediaDir)) return;
+  const ping = () => { clearTimeout(mediaTimer); mediaTimer = setTimeout(() => send('media:changed', scanMedia()), 800); }; // wait for copying to finish
+  try { mediaWatcher = fs.watch(mediaDir, { recursive: true }, ping); }
+  catch (e) { try { mediaWatcher = fs.watch(mediaDir, ping); } catch (e2) { mediaWatcher = null; } }
+  if (mediaWatcher) mediaWatcher.on('error', () => { /* folder went away: the next scan reports it */ });
+}
+function setMediaDir(dir) {
+  mediaDir = dir ? path.resolve(String(dir)) : '';
+  writeConfig({ mediaFolder: mediaDir });
+  watchMedia();
+}
+ipcMain.handle('media:get', () => scanMedia());
+ipcMain.handle('media:scan', () => scanMedia());
+ipcMain.handle('media:choose', async () => {
+  const r = await dialog.showOpenDialog(mainWin, { title: 'Choose the folder with your photos and videos', defaultPath: mediaDir || app.getPath('videos'), properties: ['openDirectory'] });
+  if (r.canceled || !r.filePaths[0]) return Object.assign(scanMedia(), { canceled: true });
+  setMediaDir(r.filePaths[0]);
+  return scanMedia();
+});
+ipcMain.handle('media:clear', () => { setMediaDir(''); return scanMedia(); });
+ipcMain.handle('media:open', () => (mediaDir ? shell.openPath(mediaDir) : ''));
+
+// ---------- Lower-third pictures: imported pictures are permanent app assets ----------
+// They live in their own folder inside the app's data folder (never in the media folder), so they stay available
+// in every project and every session until the person removes them.
+const LT_EXT = new Set(['.png', '.jpg', '.jpeg', '.webp', '.gif', '.bmp']);
+const ltDir = () => path.join(app.getPath('userData'), 'lowerthirds');
+const ltIndexPath = () => path.join(ltDir(), 'index.json');
+const ltUrl = (file) => 'redcast-lt://files/' + encodeURIComponent(file);
+function ltReadIndex() {
+  try { const a = JSON.parse(fs.readFileSync(ltIndexPath(), 'utf8')); return Array.isArray(a) ? a : []; } catch (e) { return []; }
+}
+function ltWriteIndex(list) {
+  fs.mkdirSync(ltDir(), { recursive: true });
+  const tmp = ltIndexPath() + '.tmp';
+  fs.writeFileSync(tmp, JSON.stringify(list, null, 2));
+  fs.renameSync(tmp, ltIndexPath()); // written whole or not at all
+}
+function ltList() {
+  const list = ltReadIndex().filter((e) => e && e.id && e.file && fs.existsSync(path.join(ltDir(), path.basename(e.file))));
+  return list.map((e) => ({ id: e.id, name: e.name, w: e.w, h: e.h, url: ltUrl(path.basename(e.file)) }));
+}
+ipcMain.handle('lt:list', () => ({ ok: true, items: ltList() }));
+ipcMain.handle('lt:import', async () => {
+  const r = await dialog.showOpenDialog(mainWin, {
+    title: 'Choose lower-third pictures to import',
+    properties: ['openFile', 'multiSelections'],
+    filters: [{ name: 'Pictures', extensions: ['png', 'jpg', 'jpeg', 'webp', 'gif', 'bmp'] }],
+  });
+  if (r.canceled || !r.filePaths.length) return { ok: true, canceled: true, items: ltList(), added: [], failed: [] };
+  const index = ltReadIndex(), added = [], failed = [];
+  fs.mkdirSync(ltDir(), { recursive: true });
+  for (const src of r.filePaths) {
+    const ext = path.extname(src).toLowerCase(), base = path.basename(src, path.extname(src));
+    try {
+      if (!LT_EXT.has(ext)) throw new Error('not a supported picture');
+      const size = nativeImage.createFromPath(src).getSize();
+      if (!size.width || !size.height) throw new Error('could not be read');
+      const id = 'u-' + Date.now().toString(36) + Math.random().toString(36).slice(2, 6);
+      const file = id + ext;
+      fs.copyFileSync(src, path.join(ltDir(), file)); // a copy: the original can be moved or deleted afterwards
+      index.push({ id, name: base, file, w: size.width, h: size.height, added: Date.now() });
+      added.push(id);
+    } catch (e) { failed.push(path.basename(src)); }
+  }
+  if (added.length) ltWriteIndex(index);
+  return { ok: true, canceled: false, items: ltList(), added, failed };
+});
+ipcMain.handle('lt:remove', (e, id) => {
+  const index = ltReadIndex(), hit = index.find((x) => x.id === id);
+  if (hit) {
+    try { fs.unlinkSync(path.join(ltDir(), path.basename(hit.file))); } catch (err) { /* already gone */ }
+    ltWriteIndex(index.filter((x) => x.id !== id));
+  }
+  return { ok: true, items: ltList() };
+});
+ipcMain.handle('lt:open', () => { fs.mkdirSync(ltDir(), { recursive: true }); return shell.openPath(ltDir()); });
 
 // ---------- ffmpeg check ----------
 const HW_ENCODERS = ['h264_nvenc', 'h264_amf', 'h264_qsv'];
@@ -356,6 +488,35 @@ ipcMain.handle('logs:open', () => shell.openPath(logDir));
 ipcMain.handle('logs:dir', () => logDir);
 
 app.whenReady().then(() => {
+  { // serve files from the media folder, and only from it
+    protocol.handle('redcast-media', (request) => {
+      try {
+        const rel = decodeURIComponent(new URL(request.url).pathname.replace(/^\/+/, ''));
+        const full = path.resolve(mediaDir || '', rel);
+        if (!mediaDir || (full !== mediaDir && !full.startsWith(mediaDir + path.sep))) return new Response('Not allowed', { status: 403 });
+        const ext = path.extname(full).toLowerCase();
+        if (!VIDEO_EXT.has(ext) && !IMAGE_EXT.has(ext)) return new Response('Not allowed', { status: 403 });
+        return net.fetch(pathToFileURL(full).toString(), { headers: request.headers, bypassCustomProtocolHandlers: true }).then((res) => {
+          const h = new Headers(res.headers); h.set('Access-Control-Allow-Origin', '*');
+          return new Response(res.body, { status: res.status, statusText: res.statusText, headers: h });
+        });
+      } catch (e) { return new Response('Not found', { status: 404 }); }
+    });
+  }
+  { // serve imported lower-third pictures, and only from their own folder
+    protocol.handle('redcast-lt', (request) => {
+      try {
+        const file = path.basename(decodeURIComponent(new URL(request.url).pathname.replace(/^\/+/, '')));
+        const full = path.join(ltDir(), file);
+        if (!LT_EXT.has(path.extname(full).toLowerCase()) || !fs.existsSync(full)) return new Response('Not found', { status: 404 });
+        return net.fetch(pathToFileURL(full).toString(), { bypassCustomProtocolHandlers: true }).then((res) => {
+          const h = new Headers(res.headers); h.set('Access-Control-Allow-Origin', '*');
+          return new Response(res.body, { status: res.status, statusText: res.statusText, headers: h });
+        });
+      } catch (e) { return new Response('Not found', { status: 404 }); }
+    });
+  }
+  { const saved = readConfig().mediaFolder; if (saved) { mediaDir = path.resolve(saved); watchMedia(); } }
   logDir = path.join(app.getPath('documents'), APP_NAME, 'Logs');
   fs.mkdirSync(logDir, { recursive: true });
   recDir = path.join(app.getPath('videos'), APP_NAME);

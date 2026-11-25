@@ -1,6 +1,6 @@
 const { contextBridge, ipcRenderer } = require('electron');
 
-const ALLOWED_EVENTS = ['metrics', 'stream:ended', 'ffmpeg:log', 'tv:state', 'tv:closed', 'rtc:signal'];
+const ALLOWED_EVENTS = ['metrics', 'stream:ended', 'ffmpeg:log', 'tv:state', 'tv:closed', 'rtc:signal', 'media:changed'];
 
 contextBridge.exposeInMainWorld('api', {
   listDisplays: () => ipcRenderer.invoke('displays:list'),
@@ -28,6 +28,15 @@ contextBridge.exposeInMainWorld('api', {
   ytEnd: (id) => ipcRenderer.invoke('yt:end', id),
   ytExpand: (text) => ipcRenderer.invoke('yt:expand', text),
   bibleFetch: (ref, trans) => ipcRenderer.invoke('bible:fetch', ref, trans),
+  mediaGet: () => ipcRenderer.invoke('media:get'),
+  mediaScan: () => ipcRenderer.invoke('media:scan'),
+  mediaChoose: () => ipcRenderer.invoke('media:choose'),
+  mediaClear: () => ipcRenderer.invoke('media:clear'),
+  mediaOpen: () => ipcRenderer.invoke('media:open'),
+  ltList: () => ipcRenderer.invoke('lt:list'),
+  ltImport: () => ipcRenderer.invoke('lt:import'),
+  ltRemove: (id) => ipcRenderer.invoke('lt:remove', id),
+  ltOpen: () => ipcRenderer.invoke('lt:open'),
   openLogs: () => ipcRenderer.invoke('logs:open'),
   logDir: () => ipcRenderer.invoke('logs:dir'),
   on: (channel, cb) => {

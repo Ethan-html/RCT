@@ -83,7 +83,7 @@ function addCard(fields) {
   preview.items = withoutLowers(preview.items);
   const it = newItem('card', fields);
   Object.assign(it, lookBox(slotOf(it))); // full lower thirds always sit in their own fixed place
-  preview.items.push(it); preview.sel = it.id;
+  preview.items.push(it); preview.sel = null; // pushed items are shown, never selected: only a click selects
   commit();
   return it;
 }
@@ -99,7 +99,7 @@ function addName(name, title) {
   let it = preview.items.find((i) => i.type === 'name');
   if (it) { it.name = name; it.title = title; it.w = slideWidth(name, title); }
   else { it = newItem('name', { name, title }); it.w = slideWidth(name, title); preview.items.push(it); }
-  preview.sel = it.id;
+  preview.sel = null;
   commit();
   return it;
 }
@@ -107,8 +107,9 @@ function addVerse(ref, text, trans) {
   const label = trans ? `${ref} (${trans})` : ref;
   preview.items = preview.items.filter((i) => i.type === 'verse' || !isLower(i.type));
   const ex = preview.items.find((i) => i.type === 'verse');
-  if (ex) { ex.ref = label; ex.text = text; preview.sel = ex.id; }
-  else { const it = newItem('verse', { ref: label, text }); preview.items.push(it); preview.sel = it.id; }
+  if (ex) { ex.ref = label; ex.text = text; }
+  else { const it = newItem('verse', { ref: label, text }); preview.items.push(it); }
+  preview.sel = null;
   commit();
 }
 // If a verse is already on the Output, swap its words right there (no SEND needed).
@@ -145,7 +146,7 @@ function addPhoto(clipId, nw, nh) {
   const it = newItem('photo', { clipId, w: Math.round(w), h: Math.round(h), x: Math.round((W - w) / 2), y: Math.round((H - h) / 2) });
   preview.items = preview.items.filter((i) => i.type !== 'photo');
   preview.items.splice(1, 0, it); // above the camera, below any verse or name
-  preview.sel = it.id;
+  preview.sel = null; // click it in Preview if you want to move or resize it
   commit();
 }
 function removeSelected() {
@@ -196,8 +197,14 @@ function previewDiffers() {
   const pRest = preview.items.filter((i) => !isLower(i.type)), lRest = live.items.filter((i) => !isLower(i.type));
   return preview.items.some((i) => isLower(i.type)) || sigList(pRest, skip) !== sigList(lRest, skip);
 }
+// SEND with a blank Preview takes the lower third that is on the Output off.
+const liveHasLower = () => live.items.some((i) => isLower(i.type));
+const sendWouldClear = () => !previewDiffers() && liveHasLower();
 function goLive() {
-  if (!previewDiffers()) return;
+  if (!previewDiffers()) {
+    if (liveHasLower()) setLive(live.items.filter((i) => !isLower(i.type)), false); // the blank Preview is sent too
+    return;
+  }
   const lb = liveBaseItem(), pRest = preview.items.filter((i) => !isLower(i.type)), pLower = preview.items.filter((i) => isLower(i.type));
   const keepLower = clone(live.items).filter((i) => isLower(i.type));
   const body = lb && lb.type === 'media' ? [clone(lb), ...clone(pRest).filter((i) => !isBase(i.type))] : clone(pRest); // overlays go on top of a playing video

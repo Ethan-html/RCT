@@ -3,14 +3,14 @@
 <head>
 <meta charset="utf-8">
 <title>Redcast</title>
-<meta http-equiv="Content-Security-Policy" content="default-src 'self'; style-src 'self' 'unsafe-inline'; media-src 'self' blob:; img-src 'self' data: blob:">
+<meta http-equiv="Content-Security-Policy" content="default-src 'self'; style-src 'self' 'unsafe-inline'; media-src 'self' blob: redcast-media:; img-src 'self' data: blob: redcast-media: redcast-lt:">
 <link rel="stylesheet" href="styles.css">
 </head>
 <body>
 <div id="banner" hidden><span id="bannerText"></span><button id="bannerClose" class="small">Dismiss</button></div>
 
 <header id="topbar">
-  <div class="brand" id="brandName">Redcast</div>
+  <div class="brandwrap"><svg class="logo" viewBox="0 0 512 512" aria-hidden="true"><rect x="16" y="16" width="480" height="480" rx="112" fill="#141414" stroke="#2e2e2e" stroke-width="4"/><circle cx="256" cy="256" r="52" fill="#ef4b52"/><g fill="none" stroke="#ebebeb" stroke-width="30" stroke-linecap="round"><path d="M164 164A130 130 0 0 0 164 348"/><path d="M348 164A130 130 0 0 1 348 348"/></g><g fill="none" stroke="#ebebeb" stroke-width="26" stroke-linecap="round" opacity=".55"><path d="M108 108A210 210 0 0 0 108 404"/><path d="M404 108A210 210 0 0 1 404 404"/></g></svg><div class="brand" id="brandName">Redcast</div></div>
   <nav id="viewTabs" class="seg">
     <button data-view="Show" class="on" title="Ctrl+1">Show</button>
     <button data-view="TV" title="Ctrl+2">External</button>
@@ -99,8 +99,7 @@
         <div class="bcol">
           <div class="bhead"><span>Videos and photos</span><button id="btnClipAdd" class="small primary">Add files...</button></div>
           <div id="clipList" class="scroll cliptiles"></div>
-          <div class="bgchips-wrap"><div class="ilabel">Lower third pictures - click one to choose where to use it</div><div id="bgChips" class="bgchips"></div></div>
-          <div class="vnote">Add a lower third picture here too: it is recognised and you are asked where to use it. Photos go to Preview as an overlay.</div>
+          <div class="folderline"><span id="mediaFolderNow">No media folder chosen yet.</span><button id="btnMediaFolderGo" class="link">Choose a folder in Settings</button></div>
           <input type="file" id="clipFile" accept="video/*,image/*" multiple hidden>
         </div>
         <div class="bcol">
@@ -136,44 +135,21 @@
     <div class="dockpane" id="paneLower" hidden>
       <div class="lowerwrap4">
         <div class="bcol">
-          <div class="bhead"><span>Slide-in (names)</span></div>
-          <div class="cplay">
-            <label class="first">Name</label><input type="text" id="lowerName" placeholder="Name on screen">
-            <label>Title (optional)</label><input type="text" id="lowerTitle" placeholder="Title or role">
-            <div class="row"><button id="btnLowerAdd" class="primary wide">Add to Preview</button><button id="btnLowerSave">Save to list</button></div>
-            <label class="check"><input type="checkbox" id="cardDirect"> One tap puts it straight on the Output</label>
-            <div class="small">Applies to everything on this tab. Only one lower third is on the screen at a time.</div>
-          </div>
-        </div>
-        <div class="bcol">
           <div class="bhead"><span>Full lower thirds</span><button id="btnLowerLook" class="link" title="Change how they look">Looks...</button></div>
           <div class="cplay">
             <div class="qgrid">
               <button class="qcard" data-card="welcome"><b>Welcome</b><small>Thanks for joining us</small></button>
               <button class="qcard" data-card="thanks"><b>Thank you</b><small>See you next week</small></button>
               <button class="qcard" data-card="countdown"><b>Countdown</b><small><input type="number" id="cardMinutes" min="1" max="120" value="5"> minutes from now</small></button>
-              <button class="qcard" data-card="service"><b>Until service starts</b><small id="serviceTimeLabel">Set the time in Settings</small></button>
+              <button class="qcard" data-card="service" id="qcService" hidden><b>Until service starts</b><small id="serviceTimeLabel"></small></button>
               <button class="qcard" data-card="follow"><b>Follow us</b><small>Animated, with your names</small></button>
+              <button class="qcard" data-card="give" id="qcGive" hidden><b>Give (QR)</b><small>QR code and link</small></button>
             </div>
             <label>Your own message</label>
             <div class="two"><input type="text" id="msgA" placeholder="Big line"><input type="text" id="msgB" placeholder="Small line (optional)"></div>
-            <div class="row"><select id="msgType"><option value="full">As a full lower third</option><option value="slide">As a slide-in</option></select><button id="btnMsgAdd">Show message</button></div>
-          </div>
-        </div>
-        <div class="bcol">
-          <div class="bhead"><span>QR code</span></div>
-          <div class="cplay">
-            <label class="first">Word on the card</label><input type="text" id="qrLabel" placeholder="Give">
-            <label>Link</label><input type="text" id="qrUrl" placeholder="https://yourchurch.org/give">
-            <div class="row"><button id="btnQrShow" class="primary wide">Show QR</button></div>
-            <div class="small">Type a link and the QR code is made for you. The link is written on the card too. With no link there is no QR code.</div>
-          </div>
-        </div>
-        <div class="bcol">
-          <div class="bhead"><span>Saved names</span></div>
-          <div class="lowerlist scroll">
-            <div class="msg" id="lowerEmpty">Saved names appear here. Press Save to list, and next time it is one click.</div>
-            <div id="lowerList" class="tiles"></div>
+            <div class="row"><select id="msgType"><option value="full">As a full lower third</option><option value="slide">As a slide-in</option></select><button id="btnMsgAdd" class="primary">Show message</button></div>
+            <label class="check"><input type="checkbox" id="cardDirect"> One tap puts it straight on the Output</label>
+            <div class="small">Applies to everything on this tab. Only one lower third is on the screen at a time.</div>
           </div>
         </div>
       </div>
@@ -192,6 +168,7 @@
     <div class="isec">
       <div class="ilabel">Screens</div>
       <div id="screenList" class="screenlist"></div>
+      <div class="row"><button id="btnScreensManage" class="small">Rename or hide screens...</button></div>
     </div>
     <div class="isec">
       <div class="ilabel">Show on the selected screen</div>
@@ -226,20 +203,42 @@
           <div class="pagenote"><button id="lsSampleReplay" class="small">Replay animation</button> <button id="lsSampleReset" class="small">Reset to default</button></div></div>
         <div class="lookctl" id="lsSampleControls"></div>
       </div></section>
-<section class="spage" data-page="pictures" hidden><h2 class="ptitle">Pictures</h2>
-      <div class="psub">Backgrounds for every kind of lower third. Add your own: the app finds the lower third in the picture and you choose where to use it.</div>
-      <div class="row nomt"><button id="btnBgAdd" class="primary">Add a picture...</button><input type="file" id="bgFile" accept="image/*" hidden></div>
-      <div id="bgGrid" class="bggrid"></div>
-      <div id="bgActions" class="bgactions" hidden>
-        <div class="ilabel" id="bgSelName"></div>
-        <div class="row nomt"><button id="bgWhere" class="primary">Choose where to use it...</button><button id="bgAll">Everything</button><button id="bgVerse">Bible verse</button><button id="bgCards">Full lower thirds</button><button id="bgDel">Remove from my list</button></div>
-      </div></section>
 <section class="spage" data-page="cards" hidden><h2 class="ptitle">Full lower thirds</h2>
       <div class="lookgrid">
         <div class="lookleft"><div class="stagebox"><span class="badge"><i class="dot blue"></i>SAMPLE</span><canvas id="qcSample" width="800" height="450"></canvas></div>
           <div class="pagenote" id="qcKinds"></div></div>
         <div class="lookctl" id="qcSampleControls"></div>
       </div></section>
+<section class="spage" data-page="media" hidden><h2 class="ptitle">Media folder</h2>
+      <div class="psub">Pick one folder. Every photo and video in it shows up on the Videos &amp; Photos shelf by itself.</div>
+      <div class="cards one"><div class="card">
+        <h3>Photos and videos folder</h3>
+        <div class="status" id="mediaDirText">No folder chosen yet</div>
+        <div class="row"><button id="btnMediaChoose" class="primary">Choose folder...</button><button id="btnMediaOpen">Open the folder</button><button id="btnMediaRescan">Check for new files</button><button id="btnMediaClear">Stop using this folder</button></div>
+        <div class="small" id="mediaCount"></div>
+        <div class="small">Folders inside it are searched too. New files appear on the shelf a moment after they are copied in. The folder is remembered when the app restarts.</div>
+      </div></div></section>
+<section class="spage" data-page="qr" hidden><h2 class="ptitle">QR code</h2>
+      <div class="psub">Set the link here and a Give (QR) button appears on the Lower Thirds tab. With no link the button is hidden.</div>
+      <div class="cards one"><div class="card">
+        <h3>What the card says</h3>
+        <label class="first">Word on the card</label><input type="text" id="qrLabel" placeholder="Give">
+        <label>Small line</label><input type="text" id="qrSmall" placeholder="Scan to give">
+        <label>Link for the QR code</label><input type="text" id="qrUrl" placeholder="https://yourchurch.org/give">
+        <div class="small">Type a link and the QR code is made for you. The link is written on the card too. With no link there is no QR code.</div>
+      </div><div class="card">
+        <h3>Look and movement</h3>
+        <div class="small">The colours, shape, size and animation of the QR card are set with the other full lower thirds.</div>
+        <div class="row"><button id="btnQrLook">Change how the QR card looks...</button></div>
+      </div></div></section>
+<section class="spage" data-page="screens" hidden><h2 class="ptitle">Screens</h2>
+      <div class="psub">Give each monitor a name you will recognise, and hide the ones you never use.</div>
+      <div class="cards one"><div class="card">
+        <h3>Monitors found</h3>
+        <div id="screenManage" class="screenlist"></div>
+        <div class="row"><button id="btnScreensRefresh">Refresh</button></div>
+        <div class="small">A hidden screen is not shown on the External page and cannot be used until you show it again here.</div>
+      </div></div></section>
 <section class="spage" data-page="cam" hidden><h2 class="ptitle">Camera &amp; sound</h2><div class="cards"><div class="card">
           <h3>Camera and audio</h3>
           <label>Camera (capture card)</label><select id="camSel"></select>
@@ -262,7 +261,7 @@
           <div class="small">Recordings are saved in this folder, in a folder named after the app:</div>
           <div class="status" id="recDirText">...</div>
           <div class="row"><button id="btnRecs">Open the folder</button><button id="btnRecChoose">Change...</button><button id="btnRecDefault">Use the default</button></div>
-        </div><div class="card">
+        </div><div class="card" id="ytCard">
           <h3>YouTube</h3>
           <div class="status" id="ytInfo">Checking...</div>
           <div class="row"><button id="btnYtSign" class="primary">Sign in with YouTube</button></div>
@@ -271,23 +270,23 @@
           <label>Description</label><textarea id="ytDesc" rows="3">Welcome to our service on {longdate}.</textarea>
           <label>Who can watch</label>
           <select id="ytPrivacy"><option value="unlisted">Unlisted (anyone with the link)</option><option value="public">Public</option><option value="private">Private (only you)</option></select>
+          <label>Latency</label>
+          <select id="ytLatency"><option value="low">Low (recommended)</option><option value="normal">Normal</option><option value="ultraLow">Ultra low</option></select>
+          <label class="check"><input type="checkbox" id="ytDvr" checked> Let viewers rewind (DVR)</label>
           <div class="small">Use {date} {longdate} {shortdate} {weekday} {month} {day} {year} {time} {service} in the title or description. Each time you start a stream, a new YouTube broadcast is created from this template.</div>
-        </div><div class="card">
+        </div><div class="card" id="ytSetupCard">
+          <h3>YouTube connection (one-time)</h3>
+          <div class="small">Create a Google client ID once (see YOUTUBE-SETUP.md), paste it here, then use Sign in with YouTube above. After you connect, this is saved safely and this box goes away.</div>
+          <label>Google client ID</label><input type="text" id="ytClientId">
+          <label>Google client secret</label><input type="password" id="ytClientSecret" placeholder="Saved securely. Leave blank to keep it.">
+          <div class="row"><button id="btnYtClient" class="primary">Save</button></div>
+          <div class="small" id="ytClientInfo"></div>
+        </div><div class="card" id="destCard">
           <h3>Stream destination</h3>
           <label>Where the stream goes</label>
           <select id="destMode"><option value="auto">Automatic (YouTube if signed in)</option><option value="rtmp">Manual stream URL and key</option><option value="file">Test file on this PC (not live)</option></select>
           <label>Manual stream URL</label><input type="text" id="url" value="rtmp://a.rtmp.youtube.com/live2">
           <label>Manual stream key (private)</label><input type="password" id="key">
-        </div><div class="card">
-          <h3>YouTube connection (one-time)</h3>
-          <div class="small">Create a Google client ID once (see YOUTUBE-SETUP.md), paste it here, then use Sign in with YouTube above.</div>
-          <label>Google client ID</label><input type="text" id="ytClientId">
-          <label>Google client secret</label><input type="password" id="ytClientSecret" placeholder="Saved securely. Leave blank to keep it.">
-          <div class="row"><button id="btnYtClient" class="primary">Save</button></div>
-          <div class="small" id="ytClientInfo"></div>
-          <label>Latency</label>
-          <select id="ytLatency"><option value="low">Low (recommended)</option><option value="normal">Normal</option><option value="ultraLow">Ultra low</option></select>
-          <label class="check"><input type="checkbox" id="ytDvr" checked> Let viewers rewind (DVR)</label>
         </div><div class="card">
           <h3>Video quality</h3>
           <label>Encoder (auto-detected)</label><select id="encoder"><option value="libx264">Checking...</option></select>
@@ -310,10 +309,12 @@
     <div class="navgroup">Looks</div>
     <button data-page="cards">Full lower thirds</button>
     <button data-page="lower">Slide-in (names)</button>
-    <button data-page="pictures">Pictures</button>
     <div class="navgroup">Setup</div>
     <button data-page="cam">Camera &amp; sound</button>
     <button data-page="stream">Stream &amp; recording</button>
+    <button data-page="media">Media folder</button>
+    <button data-page="qr">QR code</button>
+    <button data-page="screens">Screens</button>
     <div class="navgroup">Engineer</div>
     <button data-page="status">Status &amp; log</button>
   </aside>

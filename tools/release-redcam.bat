@@ -14,7 +14,7 @@ py -m pip install -r requirements.txt pyinstaller
 if errorlevel 1 goto :fail
 if exist backend-dist rmdir /s /q backend-dist
 if exist build rmdir /s /q build
-py -m PyInstaller --noconfirm --clean --onedir --name ptz-backend --distpath backend-dist --workpath build --icon icon.ico --add-data "index.html;." --add-data "icon.ico;." --hidden-import keyboard._winkeyboard app.py
+py -m PyInstaller --noconfirm --clean --onedir --name ptz-backend --distpath backend-dist --workpath build --icon icon.ico --version-file version-info.txt --add-data "index.html;." --add-data "icon.ico;." --hidden-import keyboard._winkeyboard app.py
 if errorlevel 1 goto :fail
 
 echo.

@@ -37,3 +37,4 @@ release/
 # Any node_modules anywhere, any npm debug logs
 node_modules/
 npm-debug.log*
+.local-data-releases/

@@ -60,13 +60,22 @@ Click the green **Run workflow** button and wait a few minutes. A green tick mea
 
 Follow "Installing on a church PC" in the main [`README`](../README.md). That is the whole deployment.
 
-## Try the launcher on your own PC first (optional)
+## Testing on your own PC
 
-Double-click **`START-LOCAL.bat`** in the project folder. The first time it installs what it needs, then opens the launcher.
+Two double-click files in the project folder:
 
-- Everything it creates (`node_modules`, test settings, test-installed apps in `.local-data`) is ignored by git, so nothing from testing ever gets committed.
-- It never touches a real install, because test data stays in `.local-data`. Delete that folder to start fresh.
-- In **Settings** type your repo as `YOURNAME/RCT`. In this test mode the launcher cannot update *itself* (that only works for the installed version), but app updates work.
+| File | Use it to | Where the apps come from |
+|---|---|---|
+| **`START-LOCAL.bat`** | See your code changes. Edit a file in `apps\redcast`, close the app, open it again. | Your local `apps` folder. Nothing is downloaded. |
+| **`START-LOCAL-RELEASES.bat`** | Test the update flow (prompts, Update buttons, "needs newer launcher"). | Downloaded from your GitHub releases, like a church PC. |
+
+Both install what they need the first time, and keep their test files in `.local-data` / `.local-data-releases`. Git ignores those, `node_modules` and build folders, so testing never gets committed. Delete them any time to start fresh. Neither touches a real install.
+
+Notes for `START-LOCAL.bat`:
+- A blue-ish note at the top of the launcher says dev mode is on. Update checks are off there.
+- Redcast's ffmpeg is downloaded into `apps\redcast\bin` the first time (git ignores it).
+- Redcam runs from its Python source, so it needs Python. The script installs its packages the first time.
+- The launcher cannot update *itself* in either mode (that only works for the installed version).
 
 ## Good to know
 

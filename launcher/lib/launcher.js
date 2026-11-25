@@ -1,5 +1,5 @@
 // The launcher itself: first-launch install, startup choice, updates, tray, and the window the person sees.
-const { app, BrowserWindow, ipcMain, Tray, Menu, dialog, shell, screen, nativeImage } = require('electron');
+const { app, BrowserWindow, ipcMain, Tray, Menu, shell, screen, nativeImage } = require('electron');
 const { execFile } = require('child_process');
 const fs = require('fs');
 const path = require('path');
@@ -25,16 +25,39 @@ let launcherUpdate = null;              // newer launcher release, if any
 let updatingAll = false;
 let startedWithFlag = false;            // started with --launcher
 const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
+// The boot animation plays in the window on every start. Nothing (prompt, update box, hiding to the tray) happens until it has finished.
+const BOOT_MS = 3200; let bootAt = 0;
+const afterSplash = () => sleep(Math.max(0, bootAt + BOOT_MS - Date.now()));
 
 const reg = (id) => registry.find((r) => r.id === id);
 const installedIds = () => registry.map((r) => r.id).filter((id) => store.installedVersion(id));
-rt.init({ installed: installedIds, name: (id) => (reg(id) || {}).name || id, changed: () => push() });
+rt.init({ changed: () => push() });
 
 // ---------- state sent to the window ----------
 let pushTimer = null;
-function push() {
+function push(now) {
+  if (now) { if (pushTimer) { clearTimeout(pushTimer); pushTimer = null; } if (win && !win.isDestroyed()) win.webContents.send('state', publicState()); return; }
   if (pushTimer) return;
   pushTimer = setTimeout(() => { pushTimer = null; if (win && !win.isDestroyed()) win.webContents.send('state', publicState()); }, 60);
+}
+
+// ---------- questions, asked inside the launcher window (replaces the plain Windows message boxes) ----------
+// ask({ title, detail, glyph, buttons: [{ label, sub, kind }], cancel }) resolves to the index of the clicked button.
+// kind: 'pri' (red), 'danger' (red), or nothing. Esc or clicking outside answers with `cancel`.
+let confirmInfo = null, confirmResolve = null;
+function ask(o) {
+  if (confirmResolve) { const r = confirmResolve; confirmResolve = null; r(-1); }     // a newer question replaces an older one
+  return new Promise((resolve) => {
+    confirmResolve = resolve;
+    confirmInfo = { title: o.title, detail: o.detail || '', glyph: o.glyph || '', buttons: o.buttons, cancel: o.cancel == null ? o.buttons.length - 1 : o.cancel };
+    showWindow();
+    push(true);
+  });
+}
+function answer(i) {
+  const r = confirmResolve; confirmResolve = null; confirmInfo = null;
+  push(true);
+  if (r) r(i);
 }
 function say(text) { if (win && !win.isDestroyed()) win.webContents.send('toast', text); }
 const canSelfUpdate = () => app.isPackaged && process.platform === 'win32';
@@ -46,7 +69,7 @@ function pending() {
 }
 function publicState() {
   return {
-    stage, stageInfo, busyText, checking, pending: pending(),
+    stage, stageInfo, busyText, checking, pending: pending(), dev: store.DEV, confirm: confirmInfo,
     launcher: { version: store.LAUNCHER_VERSION, update: launcherUpdate ? launcherUpdate.version : null, installing: installing.launcher || null, canSelfUpdate: canSelfUpdate() },
     settings: { startup: store.settings.startup, repo: store.settings.repo },
     displays: rt.displays().map((d, i) => ({ index: i, w: d.size.width, h: d.size.height })),
@@ -55,7 +78,7 @@ function publicState() {
       return {
         id: r.id, name: r.name, glyph: r.glyph, description: r.description,
         installed: !!v, version: v, previous: v ? store.readState(r.id).previous : null,
-        running: rt.isRunning(r.id), update: updates[r.id] ? updates[r.id].version : null,
+        running: rt.isRunning(r.id), starting: rt.isStarting(r.id), update: updates[r.id] ? updates[r.id].version : null,
         blocked: blocked[r.id] ? { version: blocked[r.id].version, needs: blocked[r.id].minLauncher } : null,
         screen: rt.screenOf(r.id), installing: installing[r.id] || null,
       };
@@ -93,22 +116,23 @@ function createTray() {
 }
 async function askQuit() {
   if (rt.hasBackendApps()) {
-    const r = await dialog.showMessageBox({ type: 'question', buttons: ['Quit launcher', 'Cancel'], defaultId: 1, cancelId: 1, message: 'Quit the launcher?', detail: 'Redcam runs inside the launcher, so it will close too.' });
-    if (r.response !== 0) return;
+    const r = await ask({ title: 'Quit the launcher?', detail: 'Redcam runs inside the launcher, so it will close too.', glyph: 'lch',
+      buttons: [{ label: 'Quit launcher', kind: 'danger' }, { label: 'Cancel' }], cancel: 1 });
+    if (r !== 0) return;
   }
   const todo = pending();
   if (todo.length) {                                  // updates are waiting: offer them on the way out
-    const r = await dialog.showMessageBox({
-      type: 'question', buttons: ['Update, then quit', 'Quit without updating', 'Cancel'], defaultId: 0, cancelId: 2,
-      message: todo.length === 1 ? 'An update is ready.' : todo.length + ' updates are ready.',
+    const r = await ask({
+      title: todo.length === 1 ? 'An update is ready' : todo.length + ' updates are ready', glyph: 'lch',
       detail: todo.map((t) => `${t.name}: ${t.from} → ${t.to}`).join('\n') + '\n\nUpdating first means next Sunday starts on the new versions. Running apps will be closed.',
+      buttons: [{ label: 'Update, then quit', kind: 'pri' }, { label: 'Quit without updating' }, { label: 'Cancel' }], cancel: 2,
     });
-    if (r.response === 2) return;
-    if (r.response === 0) {
+    if (r === 2 || r < 0) return;
+    if (r === 0) {
       const res = await runUpdates({ relaunch: false, confirmed: true });
       if (res.failed.length) {
-        const f = await dialog.showMessageBox({ type: 'warning', buttons: ['Quit anyway', 'Stay open'], defaultId: 1, cancelId: 1, message: 'Some updates did not finish.', detail: res.failed.join('\n') });
-        if (f.response !== 0) return;
+        const f = await ask({ title: 'Some updates did not finish', detail: res.failed.join('\n'), glyph: 'lch', buttons: [{ label: 'Quit anyway', kind: 'danger' }, { label: 'Stay open' }], cancel: 1 });
+        if (f !== 0) return;
       }
       if (res.launcherStarted) return;                // the installer is running and the launcher is already closing
     }
@@ -126,7 +150,7 @@ function shiftHeld() {
 }
 
 // ---------- installing and updating ----------
-const repoOk = () => store.settings.repo && !/YOUR-/i.test(store.settings.repo);
+const repoOk = () => store.settings.repo && !/YOUR/i.test(store.settings.repo);
 
 async function installMissing() {
   const missing = registry.filter((r) => !store.installedVersion(r.id));
@@ -135,7 +159,10 @@ async function installMissing() {
   setStage('install');
   let rels;
   try { rels = await gh.listReleases(store.settings.repo); }
-  catch (e) { setStage('error', { message: String(e.message || e), canSkip: installedIds().length > 0 }); return false; }
+  catch (e) {
+    if (e.code === 'BADREPO') { setStage('needRepo', { message: e.message }); return false; }   // built-in repo failed: ask
+    setStage('error', { message: String(e.message || e), canSkip: installedIds().length > 0 }); return false;
+  }
   for (const r of missing) {
     const rel = gh.latestFor(rels, r.id);
     if (!rel) { setStage('error', { message: `No release for ${r.name} yet. On GitHub, publish a release tagged ${r.id}-v0.1.0 with ${r.id}-0.1.0.zip attached. (RELEASING.md explains the Release button that does this.)`, canSkip: installedIds().length > 0 }); return false; }
@@ -156,6 +183,7 @@ async function installMissing() {
 async function checkUpdates(manual, opts) {
   opts = opts || {};
   if (checking) return;
+  if (store.DEV) { if (manual) say('Dev mode: running your local apps folder, so update checks are off. Use START-LOCAL-RELEASES.bat to test updates.'); return; }
   if (!repoOk()) { if (manual) say('Set the GitHub repo in Settings first.'); return; }
   checking = true; push();
   try {
@@ -178,14 +206,15 @@ async function checkUpdates(manual, opts) {
       else say('Everything is up to date.');
     } else if (found && opts.balloon !== false && tray) { try { tray.displayBalloon({ title: 'Update available', content: 'Open the launcher to update. Nothing changes until you choose.' }); } catch (e) { /* windows only */ } }
   } catch (e) {
-    if (manual) say('Could not check for updates: ' + (e.message || e));   // offline is fine: installed apps still open
+    if (e.code === 'BADREPO') { setStage('needRepo', { message: e.message }); showWindow(); }   // built-in repo failed: ask
+    else if (manual) say('Could not check for updates: ' + (e.message || e));   // offline is fine: installed apps still open
   } finally { checking = false; push(); }
 }
 
 async function updateApp(id, quiet) {
   const rel = updates[id];
   if (!rel) return false;
-  if (rt.isRunning(id)) { say('Close ' + reg(id).name + ' first, then update it.'); return false; }
+  if (rt.isBusy(id)) { say(rt.isRunning(id) ? 'Close ' + reg(id).name + ' first, then update it.' : reg(id).name + ' is still shutting down. Try again in a moment.'); return false; }
   installing[id] = { pct: 0, text: 'Starting…' }; push();
   let ok = false;
   try {
@@ -199,8 +228,7 @@ async function updateApp(id, quiet) {
 
 async function closeAllApps() {
   installedIds().filter((id) => rt.isRunning(id)).forEach((id) => rt.close(id));
-  const t0 = Date.now();
-  while (installedIds().some((id) => rt.isRunning(id)) && Date.now() - t0 < 9000) await sleep(250);
+  await rt.waitStopped(9000);                         // the windows are gone at once, but wait for the programs to release their files
 }
 const runningNames = () => installedIds().filter((id) => rt.isRunning(id)).map((id) => reg(id).name);
 
@@ -211,8 +239,9 @@ async function updateLauncher(opts) {
   if (!rel) return false;
   if (!canSelfUpdate()) { say('The launcher can only update itself once it is installed with the setup file.'); return false; }
   if (o.confirm && runningNames().length) {
-    const r = await dialog.showMessageBox(win, { type: 'question', buttons: ['Close apps and update', 'Cancel'], defaultId: 1, cancelId: 1, message: 'Update the launcher?', detail: runningNames().join(' and ') + ' will close first. If you are streaming or recording, it will stop.' });
-    if (r.response !== 0) return false;
+    const r = await ask({ title: 'Update the launcher?', glyph: 'lch', detail: runningNames().join(' and ') + ' will close first. If you are streaming or recording, it will stop.',
+      buttons: [{ label: 'Close apps and update', kind: 'pri' }, { label: 'Cancel' }], cancel: 1 });
+    if (r !== 0) return false;
   }
   installing.launcher = { pct: 0, text: 'Starting…' }; push();
   try {
@@ -231,8 +260,9 @@ async function runUpdates(opts) {
   const todo = pending();
   if (!todo.length) return res;
   if (!o.confirmed && runningNames().length) {
-    const r = await dialog.showMessageBox(win, { type: 'question', buttons: ['Close apps and update', 'Cancel'], defaultId: 1, cancelId: 1, message: 'Update now?', detail: runningNames().join(' and ') + ' will close first. If you are streaming or recording, it will stop.' });
-    if (r.response !== 0) return res;
+    const r = await ask({ title: 'Update now?', glyph: 'lch', detail: runningNames().join(' and ') + ' will close first. If you are streaming or recording, it will stop.',
+      buttons: [{ label: 'Close apps and update', kind: 'pri' }, { label: 'Cancel' }], cancel: 1 });
+    if (r !== 0) return res;
   }
   updatingAll = true;
   try {
@@ -257,17 +287,20 @@ async function openApp(id) {
   } catch (e) { say('Could not open ' + reg(id).name + ': ' + (e.message || e)); }
 }
 async function openAll() {
-  for (const id of installedIds()) await openApp(id);
+  // Start every app at the same time. They were opened one after the other, which made the launcher sit frozen while
+  // the second app waited for the first.
   setStage(null);
+  await Promise.all(installedIds().map((id) => openApp(id)));
   if (win && !win.isDestroyed()) win.hide();    // the launcher shrinks to the tray
 }
 
 async function closeApp(id) {
   if (id === 'redcast') {
-    const r = await dialog.showMessageBox(win, { type: 'question', buttons: ['Close Redcast', 'Cancel'], defaultId: 1, cancelId: 1, message: 'Close Redcast?', detail: 'If you are streaming or recording, it will stop.' });
-    if (r.response !== 0) return;
+    const r = await ask({ title: 'Close Redcast?', glyph: reg(id).glyph, detail: 'If you are streaming or recording, it will stop.',
+      buttons: [{ label: 'Close Redcast', kind: 'danger' }, { label: 'Cancel' }], cancel: 1 });
+    if (r !== 0) return;
   }
-  rt.close(id);
+  rt.close(id);                                       // the window goes away at once; the program finishes in the background
 }
 
 // ---------- fix-it tools ----------
@@ -275,7 +308,7 @@ async function runTool(name) {
   const ids = installedIds();
   try {
     if (name === 'logs') { await shell.openPath(store.LOGS); return; }
-    if (ids.some((id) => rt.isRunning(id)) && name !== 'logs') return say('Close the apps first, then run this.');
+    if (ids.some((id) => rt.isBusy(id)) && name !== 'logs') return say('Close the apps first, then run this.');
     if (name === 'recheck' || name === 'ffmpeg') {
       for (const id of ids) {
         const v = store.installedVersion(id); const man = store.readManifest(id, v);
@@ -287,6 +320,7 @@ async function runTool(name) {
       }
       say(name === 'ffmpeg' ? 'ffmpeg reset and ready.' : 'This PC is checked and ready.');
     } else if (name === 'repair') {
+      if (store.DEV) return say('Not available in dev mode.');
       if (!repoOk()) return say('Set the GitHub repo first.');
       setBusy('Repairing…');
       const rels = await gh.listReleases(store.settings.repo);
@@ -301,14 +335,42 @@ async function runTool(name) {
 }
 
 // ---------- startup ----------
+// First start only: look for screens with a short animation. One screen means nothing to ask, so it moves straight on.
+async function scanScreens() {
+  setStage('scan', { phase: 'scanning' }); showWindow();
+  await sleep(1900);
+  const n = rt.displays().length;
+  setStage('scan', { phase: 'found', count: n });
+  await sleep(n > 1 ? 1700 : 1400);
+  return n;
+}
+// A big number on every screen for a moment, so the person can tell which is which.
+function identifyScreens() {
+  const ds = rt.displays();
+  if (ds.length < 2) return;
+  ds.forEach((d, i) => {
+    const b = d.bounds;
+    const w = new BrowserWindow({ x: b.x, y: b.y, width: b.width, height: b.height, frame: false, transparent: true, resizable: false, movable: false, focusable: false, skipTaskbar: true, alwaysOnTop: true, hasShadow: false, show: false });
+    w.setIgnoreMouseEvents(true);
+    const html = '<body style="margin:0;height:100vh;display:grid;place-items:center;background:rgba(10,10,10,.6);font-family:Segoe UI,sans-serif;color:#fff;animation:f 2.8s both">'
+      + '<div style="text-align:center"><div style="font-size:min(46vh,420px);font-weight:700;line-height:1;color:#ef4b52;text-shadow:0 10px 60px rgba(239,75,82,.5)">' + (i + 1) + '</div>'
+      + '<div style="font-size:28px;opacity:.8">' + (i === 0 ? 'Main screen' : 'Screen ' + (i + 1)) + '</div></div>'
+      + '<style>@keyframes f{0%{opacity:0;transform:scale(.96)}12%{opacity:1;transform:none}80%{opacity:1}100%{opacity:0}}</style></body>';
+    w.loadURL('data:text/html;charset=utf-8,' + encodeURIComponent(html));
+    w.once('ready-to-show', () => { if (!w.isDestroyed()) w.showInactive(); });
+    setTimeout(() => { if (!w.isDestroyed()) w.close(); }, 3000);
+  });
+}
 async function afterInstall() {
   if (!store.settings.screensConfigured) {
-    if (rt.displays().length > 1) { setStage('screens'); showWindow(); return; }
+    const n = await scanScreens();
+    if (n > 1) { setStage('screens'); showWindow(); identifyScreens(); return; }
     store.settings.screensConfigured = true; store.save();
   }
   await decideStartup(false);
 }
 async function decideStartup(forceAsk) {
+  await afterSplash();
   const mode = store.settings.startup;
   if (forceAsk || mode === 'ask') { setStage('choose'); showWindow(); return; }
   if (mode === 'launcher') { setStage(null); showWindow(); return; }
@@ -321,14 +383,24 @@ async function continueStartup() {
 }
 async function boot() {
   startedWithFlag = process.argv.includes('--launcher');
+  if (!bootAt) { bootAt = Date.now(); showWindow(); }   // the window opens straight away so the boot animation can play
+  let fresh = false;
   if (registry.some((r) => !store.installedVersion(r.id))) {
+    fresh = true;
     showWindow();
     if (!(await installMissing())) return;
+  }
+  if (fresh) {                                        // a moment to enjoy it, then straight on (the apps are already the newest)
+    setStage('installed'); await sleep(2800);
+    await continueStartup();
+    checkUpdates(false, { timeoutMs: 6000, balloon: false });
+    return;
   }
   setStage(null);
   // Ask about updates BEFORE the apps open, so nothing has to be closed. Gives up after 6 seconds when offline.
   await checkUpdates(false, { timeoutMs: 6000, balloon: false });
-  if (pending().length) { setStage('updates', { mode: 'start' }); showWindow(); return; }
+  if (stage === 'needRepo') return;                   // the repo was wrong and we are asking for it
+  if (pending().length) { await afterSplash(); setStage('updates', { mode: 'start' }); showWindow(); return; }
   await continueStartup();
 }
 
@@ -348,12 +420,15 @@ handle('updates:all', async () => {
   if (fromStart) { setStage(null); await continueStartup(); }
 });
 handle('updates:later', async () => { if (stage === 'updates') { setStage(null); await continueStartup(); } });
-handle('app:rollback', (id) => {
-  if (rt.isRunning(id)) return say('Close ' + reg(id).name + ' first.');
+handle('app:rollback', async (id) => {
+  if (rt.isBusy(id)) return say('Close ' + reg(id).name + ' first.');
+  const st = store.readState(id);
+  const r = await ask({ title: 'Go back to the earlier version?', glyph: reg(id).glyph, detail: reg(id).name + ' ' + store.installedVersion(id) + ' → ' + st.previous,
+    buttons: [{ label: 'Go back to ' + st.previous, kind: 'pri' }, { label: 'Cancel' }], cancel: 1 });
+  if (r !== 0) return;
   inst.rollback(id); updates[id] = null; say(reg(id).name + ' is back on version ' + store.installedVersion(id) + '.'); push();
 });
-handle('tab:click', (id) => (rt.isRunning(id) ? rt.focus(id) : openApp(id)));
-handle('tabs:get', (idx) => rt.tabData(Number(idx)));
+handle('confirm:answer', (i) => answer(Number(i)));
 handle('settings:set', ({ key, value }) => {
   if (key === 'startup' && ['ask', 'all', 'launcher'].includes(value)) { store.settings.startup = value; store.save(); push(); }
 });
@@ -362,6 +437,7 @@ handle('repo:save', (repo) => {
   if (stage === 'needRepo') boot(); else { push(); checkUpdates(true); }
 });
 handle('screen:set', ({ id, index }) => { store.settings.screens[id] = index; store.save(); push(); });
+handle('screens:identify', () => identifyScreens());
 handle('screens:done', async () => { store.settings.screensConfigured = true; store.save(); await decideStartup(false); });
 handle('startup:choose', async ({ mode, remember }) => {
   if (remember) { store.settings.startup = mode; store.save(); }
@@ -375,10 +451,9 @@ handle('boot:skip', async () => { setStage(null); await afterInstall(); });
 app.on('second-instance', (_e, argv) => { showWindow(); if (argv.includes('--launcher') && stage !== 'updates') { setStage(null); } });
 app.on('window-all-closed', () => { /* stay alive in the tray */ });
 app.on('before-quit', () => { quitting = true; });
-screen.on('display-added', push);
-screen.on('display-removed', push);
-
 app.whenReady().then(() => {
+  screen.on('display-added', push);       // the screen module only works once the app is ready
+  screen.on('display-removed', push);
   createWindow();
   createTray();
   boot();

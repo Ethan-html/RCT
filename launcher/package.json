@@ -12,7 +12,8 @@
     "dist": "electron-builder --win --publish never"
   },
   "dependencies": {
-    "adm-zip": "^0.5.16"
+    "adm-zip": "^0.5.16",
+    "rcedit": "^4.0.1"
   },
   "devDependencies": {
     "electron": "^33.2.0",
@@ -21,15 +22,43 @@
   "build": {
     "appId": "com.red.launcher",
     "productName": "Red Launcher",
-    "directories": { "output": "dist" },
-    "files": ["main.js", "runner.js", "preload.js", "launcher.config.json", "apps.registry.json", "lib/**/*", "renderer/**/*", "assets/**/*", "package.json"],
-    "win": { "icon": "assets/icon.ico", "target": [{ "target": "nsis", "arch": ["x64"] }] },
+    "directories": {
+      "output": "dist"
+    },
+    "files": [
+      "main.js",
+      "runner.js",
+      "preload.js",
+      "launcher.config.json",
+      "apps.registry.json",
+      "lib/**/*",
+      "renderer/**/*",
+      "assets/**/*",
+      "package.json"
+    ],
+    "win": {
+      "icon": "assets/icon.ico",
+      "target": [
+        {
+          "target": "nsis",
+          "arch": [
+            "x64"
+          ]
+        }
+      ]
+    },
     "nsis": {
       "oneClick": true,
       "perMachine": false,
       "createDesktopShortcut": true,
       "createStartMenuShortcut": true,
       "artifactName": "Red-Launcher-Setup-${version}.${ext}"
-    }
+    },
+    "asarUnpack": [
+      "node_modules/rcedit/bin/**"
+    ]
+  },
+  "allowScripts": {
+    "electron@33.4.11": true
   }
 }

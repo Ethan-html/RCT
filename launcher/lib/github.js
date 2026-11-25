@@ -14,12 +14,13 @@ function cmp(a, b) {
 
 async function listReleases(repo, timeoutMs) {
   const { net } = require('electron');
-  if (!/^[\w.-]+\/[\w.-]+$/.test(repo || '')) throw new Error('The GitHub repo name looks wrong. It should look like owner/repo.');
+  const bad = (m) => Object.assign(new Error(m), { code: 'BADREPO' });   // the launcher asks for the repo when it sees this
+  if (!/^[\w.-]+\/[\w.-]+$/.test(repo || '')) throw bad('The GitHub repo name looks wrong. It should look like owner/repo.');
   const r = await net.fetch(`https://api.github.com/repos/${repo}/releases?per_page=100`, {
     headers: { 'User-Agent': 'RedLauncher', Accept: 'application/vnd.github+json' },
     signal: timeoutMs ? AbortSignal.timeout(timeoutMs) : undefined,
   });
-  if (r.status === 404) throw new Error('GitHub says that repo does not exist, or it is private. Check the name in Settings.');
+  if (r.status === 404) throw bad('GitHub says the repo "' + repo + '" does not exist, or it is private. Type the right one below.');
   if (!r.ok) throw new Error('GitHub answered with an error (' + r.status + '). Try again in a minute.');
   return r.json();
 }
