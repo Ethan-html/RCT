@@ -1,7 +1,7 @@
 {
   "id": "redcam",
   "name": "Redcam",
-  "minLauncher": "0.1.0",
+  "minLauncher": "1.0.0",
   "type": "backend-window",
   "icon": "icon.ico",
   "appUserModelId": "com.red.redcam",
