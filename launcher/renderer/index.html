@@ -52,11 +52,11 @@ select{font:inherit;font-size:14px;color:var(--text);background:var(--raise2);bo
 .set svg{width:36px;height:36px;flex:none}
 .set span{flex:1}
 .set small{display:block;color:var(--muted);font-size:12.5px}
-.mons{display:grid;grid-template-columns:repeat(auto-fit,minmax(300px,1fr));gap:14px}
+.mons{display:grid;grid-template-columns:repeat(auto-fill,minmax(150px,170px));gap:10px;justify-content:start}
 .mon{border:1px solid var(--line2);border-radius:10px;overflow:hidden;background:#0b0b0b;display:flex;flex-direction:column;aspect-ratio:16/10}
-.mon>p{margin:0;padding:6px 12px;font-size:12.5px;color:var(--muted);background:var(--panel);border-bottom:1px solid var(--line)}
-.win2{flex:1;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:8px;color:var(--muted);font-size:13px}
-.win2 svg{width:64px;height:64px}
+.mon>p{margin:0;padding:4px 9px;font-size:11.5px;color:var(--muted);background:var(--panel);border-bottom:1px solid var(--line)}
+.win2{flex:1;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:5px;color:var(--muted);font-size:12px}
+.win2 svg{width:34px;height:34px}
 .win2.off svg{opacity:.35}
 .ask{position:absolute;inset:0;background:rgba(8,8,8,.78);backdrop-filter:blur(6px);display:flex;align-items:center;justify-content:center;padding:18px;z-index:5}
 .ask[hidden]{display:none}
@@ -138,9 +138,9 @@ select{font:inherit;font-size:14px;color:var(--text);background:var(--raise2);bo
 .txt{width:100%;font:inherit;font-size:14px;color:var(--text);background:var(--raise2);border:1px solid var(--line2);border-radius:8px;padding:9px 12px;margin-bottom:12px}
 .err{color:var(--amber);font-size:14px;margin:0 0 18px;text-align:left;line-height:1.5}
 .set .txt{margin:0;width:260px}
-.chip{display:inline-flex;align-items:center;gap:6px;padding:4px 10px;border:1px solid var(--line2);border-radius:99px;font-size:12.5px;color:var(--text);background:var(--raise2)}
-.chip svg{width:18px;height:18px}
-.mon .chips{flex:1;display:flex;align-items:center;justify-content:center;gap:8px;flex-wrap:wrap;padding:10px}
+.chip{display:inline-flex;align-items:center;gap:5px;padding:3px 8px;border:1px solid var(--line2);border-radius:99px;font-size:11.5px;color:var(--text);background:var(--raise2)}
+.chip svg{width:15px;height:15px}
+.mon .chips{flex:1;display:flex;align-items:center;justify-content:center;gap:5px;flex-wrap:wrap;padding:6px}
 .ver{font-size:12px;color:var(--muted)}
 .btn.upd{border-color:#6a5220;color:var(--amber)}
 .btn.upd:hover{background:#2e2615}
@@ -288,6 +288,32 @@ h2{font-size:12px;letter-spacing:1.4px;text-transform:uppercase;margin:26px 0 12
 .set,.mon{border-radius:14px}
 .dlg{border-radius:26px;background:linear-gradient(180deg,rgba(30,30,32,.96),rgba(18,18,19,.96));border-color:#3a3a3d}
 .opt{border-radius:14px}
+
+/* ---------- text fit: long text wraps, trims or scrolls instead of spilling out ---------- */
+.ask{overflow-y:auto;overflow-x:hidden}
+.dlg{margin:auto;min-width:0;overflow-wrap:anywhere;word-break:break-word}
+.dlg h1,.dlg p,.opt b,.opt small{overflow-wrap:anywhere}
+.ring>div{padding:0 10px;text-align:center;overflow:hidden}
+.ring small{display:block;max-width:100%;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.step{min-height:18px;margin:-10px 0 14px;font-size:12.5px;line-height:1.4;color:var(--amber);display:-webkit-box;-webkit-line-clamp:2;-webkit-box-orient:vertical;overflow:hidden}
+.step:empty{display:none}
+#instRows{max-height:min(34vh,260px);overflow-y:auto;overflow-x:hidden;padding-right:2px}
+.inst>div{min-width:0}
+.inst small{gap:12px;min-width:0}
+.inst small span:first-child{flex:none;max-width:55%;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.inst small span:last-child{flex:1;min-width:0;text-align:right;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.err{max-height:34vh;overflow-y:auto;overflow-wrap:anywhere;white-space:pre-wrap;padding-right:4px}
+.tip{overflow-wrap:anywhere}
+.ups small,.pick b{min-width:0;overflow-wrap:anywhere}
+@media (max-height:680px){
+  .dlg{padding:20px 22px 16px}
+  .ring{width:96px;height:96px;margin-bottom:12px}
+  .ring>div{width:80px;height:80px}
+  .ring b{font-size:20px}
+  .dlg h1{font-size:19px}
+  .dlg p{margin-bottom:14px}
+  #instRows{max-height:28vh}
+}
 </style>
 </head>
 <body class="hold booting">
@@ -314,6 +340,7 @@ h2{font-size:12px;letter-spacing:1.4px;text-transform:uppercase;margin:26px 0 12
         <div class="ring" id="ring"><i class="spin"></i><div><b id="pct">0%</b><small id="pstep">Starting…</small></div></div>
         <h1>Setting up your apps</h1>
         <p class="tip" id="tip">First launch. This happens once and needs no clicks.</p>
+        <p class="step" id="pfull"></p>
         <div id="instRows"></div>
       </div>
       <div id="stDone" hidden>
@@ -447,7 +474,7 @@ function paintInstall(apps) {          // rows are built once and then updated i
   apps.forEach((a) => {
     const r = document.getElementById('ir-' + a.id); if (!r) return;
     r.className = 'inst' + (a.installed ? ' ok' : a.installing ? ' go' : '');
-    r.querySelector('.st').textContent = a.installed ? 'Installed' : a.installing ? a.installing.text : 'Waiting';
+    const st = r.querySelector('.st'); st.textContent = a.installed ? 'Installed' : a.installing ? a.installing.text : 'Waiting'; st.title = st.textContent;
     r.querySelector('.prog>div').style.width = (a.installed ? 100 : a.installing ? a.installing.pct : 0) + '%';
   });
 }
@@ -486,6 +513,7 @@ function renderStage() {
     if (tot !== lastTot) { lastTot = tot; tweenPct(tot); }
     const cur = apps.find((a) => a.installing);
     $('#pstep').textContent = cur ? cur.installing.text : 'Almost there';
+    $('#pstep').title = $('#pfull').textContent = cur ? cur.installing.text : '';
     paintInstall(apps);
   }
   if (st === 'scan') {
@@ -536,13 +564,14 @@ function renderApps() {
   $('#apps').innerHTML = S.apps.map((a) => {
     const ins = a.installing;
     const badge = a.running ? (a.starting ? '<span class="badge upd">Starting…</span>' : '<span class="badge run">Running</span>') : a.update ? `<span class="badge upd">Update ${esc(a.update)}</span>` : '';
-    const prog = `<div class="prog"${ins ? ' style="display:block"' : ''}><div style="width:${ins ? ins.pct : 0}%"></div></div>`;
+    const ld = a.running && a.starting && a.loading ? a.loading : null;   // the app is opening: the same bar and words as the loading window
+    const prog = `<div class="prog"${ins || ld ? ' style="display:block"' : ''}><div style="width:${ins ? ins.pct : ld ? ld.pct : 0}%"></div></div>`;
     // A newer version that needs a newer launcher gets no Update button, only a note, until the launcher is updated.
     const hold = a.blocked && !a.update ? `<p class="hold">Version ${esc(a.blocked.version)} is ready but needs launcher ${esc(a.blocked.needs)} first.${S.launcher.update ? ' Update the launcher below to get it.' : ''}</p>` : '';
     let row;
     if (ins) row = `<span class="desc">${esc(ins.text)}</span>`;
     else if (!a.installed) row = '<span class="desc">Not installed yet</span>';
-    else row = `<button class="btn ${a.running ? '' : 'pri'}" data-act="${a.running ? 'close' : 'open'}">${a.running ? 'Close' : 'Open'}</button>${a.update ? `<button class="btn upd" data-act="update"${a.running ? ' disabled title="Close the app first"' : ''}>Update to ${esc(a.update)}</button>` : ''}`;
+    else row = `<button class="btn ${a.running ? '' : 'pri'}" data-act="${a.running ? 'close' : 'open'}">${a.running ? 'Close' : 'Open'}</button>${ld ? `<span class="desc">${esc(ld.text)} - ${Math.round(ld.pct)}%</span>` : ''}${a.update ? `<button class="btn upd" data-act="update"${a.running ? ' disabled title="Close the app first"' : ''}>Update to ${esc(a.update)}</button>` : ''}`;
     return `<article class="card" data-id="${esc(a.id)}"><div class="top">${ic(a.glyph)}<div><h3>${esc(a.name)}</h3><small>${a.installed ? 'Version ' + esc(a.version) : 'Not installed'}</small></div>${badge}</div><p class="desc">${esc(a.description)}</p>${hold}${prog}<div class="row">${row}</div></article>`;
   }).join('');
 

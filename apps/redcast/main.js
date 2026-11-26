@@ -1,5 +1,5 @@
 // Main process. The app's name lives in package.json ("productName"): change it there and it changes everywhere.
-const { app, BrowserWindow, ipcMain, screen, session, shell, safeStorage, dialog, protocol, net, nativeImage } = require('electron');
+const { app, BrowserWindow, ipcMain, screen, session, shell, safeStorage, dialog, protocol, net, nativeImage, desktopCapturer } = require('electron');
 const { pathToFileURL } = require('url');
 const ytModule = require('./yt');
 const { spawn, execFile } = require('child_process');
@@ -40,6 +40,11 @@ let mediaTimer = null;
 let lastCpu = 0;
 const ffStats = { frame: 0, fps: 0, bitrate: 0, drop: 0, dup: 0, speed: 0, running: false };
 
+// Startup progress for the launcher's loading window (only when the launcher started us; one line on stdout).
+const tell = (m) => { if (!process.env.RED_RUN_APP) return; try { process.stdout.write('@@RED@@' + JSON.stringify(m) + '\n'); } catch (e) { /* launcher gone */ } };
+ipcMain.on('boot:progress', (e, pct, text) => tell({ cmd: 'progress', pct: Number(pct) || 0, text: String(text || '') }));
+ipcMain.on('boot:loaded', () => tell({ cmd: 'loaded' }));
+
 function pad(n) { return String(n).padStart(2, '0'); }
 function stamp() {
   const d = new Date();
@@ -54,6 +59,7 @@ function ffmpegPath() {
 }
 
 function createMainWindow() {
+  tell({ cmd: 'progress', pct: 5, text: 'Opening the window' });
   mainWin = new BrowserWindow({
     width: 1500,
     height: 980,
@@ -77,6 +83,7 @@ function createMainWindow() {
   });
   mainWin.on('closed', () => {
     mainWin = null;
+    webDestroy();
     killFfmpeg();
     tvWins.forEach((w) => { if (!w.isDestroyed()) w.close(); });
     app.quit();
@@ -89,6 +96,27 @@ function killFfmpeg() {
     try { ff.kill(); } catch (e) { /* ignore */ }
   }
 }
+
+// ---------- Screen capture: the windows and monitors that can be shown as the picture ----------
+let pendingCapture = ''; // the source picked in the app, handed to getDisplayMedia if the direct way is refused
+ipcMain.handle('capture:select', (e, id) => { pendingCapture = String(id || ''); return true; });
+ipcMain.handle('capture:sources', async (e, light) => {
+  const own = new Set();
+  if (mainWin && !mainWin.isDestroyed()) own.add(mainWin.getMediaSourceId());
+  tvWins.forEach((w) => { if (!w.isDestroyed()) own.add(w.getMediaSourceId()); });
+  const list = await desktopCapturer.getSources({ types: ['screen', 'window'], thumbnailSize: light ? { width: 0, height: 0 } : { width: 320, height: 180 }, fetchWindowIcons: false });
+  const displays = screen.getAllDisplays();
+  return list.filter((s) => !own.has(s.id)).map((s, i) => {
+    const isScreen = s.id.startsWith('screen:');
+    const d = isScreen ? displays.find((x) => String(x.id) === String(s.display_id)) : null;
+    const n = d ? displays.indexOf(d) + 1 : 0;
+    return {
+      id: s.id, kind: isScreen ? 'screen' : 'window', displayId: s.display_id || '',
+      name: isScreen ? `Monitor ${n || i + 1}${d ? ` (${d.bounds.width}x${d.bounds.height})` : ''}${d && d.id === screen.getPrimaryDisplay().id ? ' - main' : ''}` : s.name,
+      thumb: s.thumbnail && !s.thumbnail.isEmpty() ? s.thumbnail.toDataURL() : '',
+    };
+  });
+});
 
 // ---------- Displays and TV window ----------
 ipcMain.handle('displays:list', () => {
@@ -134,6 +162,80 @@ ipcMain.on('tv:set', (e, displayId, state) => {
   if (w && !w.isDestroyed()) w.webContents.send('tv:state', state);
 });
 
+// ---------- Web page: a hidden browser window; its picture is used like the camera or a video ----------
+// It is drawn off screen, so no mouse pointer is ever in the picture. The operator clicks, scrolls and types on a
+// preview in the app and those are passed on to the page here.
+const WEB_W = 1920, WEB_H = 1080;
+let webWin = null, webPending = null, webTimer = null, webLast = 0;
+let webState = { url: '', title: '', loading: false, error: '' };
+const webTell = () => send('web:state', webState);
+function webFlush() {
+  webTimer = null;
+  if (!webPending || !webWin || webWin.isDestroyed()) return;
+  const img = webPending; webPending = null; webLast = Date.now();
+  try { const sz = img.getSize(), cs = webWin.getContentSize(); send('web:frame', { buf: img.toJPEG(85), w: sz.width, h: sz.height, cw: cs[0], ch: cs[1] }); } catch (e) { /* skip this frame */ }
+}
+function webDestroy() {
+  if (webTimer) { clearTimeout(webTimer); webTimer = null; }
+  webPending = null;
+  if (webWin && !webWin.isDestroyed()) webWin.destroy();
+  webWin = null;
+}
+function webMake() {
+  webWin = new BrowserWindow({
+    show: false, width: WEB_W, height: WEB_H, useContentSize: true, frame: false, backgroundColor: '#000000',
+    webPreferences: { offscreen: true, partition: 'persist:redcast-web', sandbox: true, contextIsolation: true, nodeIntegration: false, backgroundThrottling: false },
+  });
+  const wc = webWin.webContents;
+  webWin.setContentSize(WEB_W, WEB_H);
+  wc.setFrameRate(24);
+  wc.setAudioMuted(true); // the page's own sound is not sent anywhere
+  wc.session.setPermissionRequestHandler((w, p, cb) => cb(false));
+  wc.session.on('will-download', (ev) => ev.preventDefault());
+  wc.on('paint', (ev, dirty, image) => { webPending = image; if (!webTimer) webTimer = setTimeout(webFlush, Math.max(0, 40 - (Date.now() - webLast))); });
+  wc.setWindowOpenHandler(({ url }) => { if (/^https?:/i.test(url)) wc.loadURL(url); return { action: 'deny' }; }); // new windows open in the same page
+  wc.on('dom-ready', () => { wc.insertCSS('html { scrollbar-width: none !important; } ::-webkit-scrollbar { display: none !important; width: 0 !important; height: 0 !important; }').catch(() => {}); }); // no scroll bar in the picture; scrolling still works
+  wc.on('did-start-loading', () => { webState = Object.assign({}, webState, { loading: true, error: '' }); webTell(); });
+  wc.on('did-stop-loading', () => { webState = Object.assign({}, webState, { loading: false, url: wc.getURL(), title: wc.getTitle() }); webTell(); });
+  wc.on('did-navigate', (e, url) => { webState = Object.assign({}, webState, { url }); webTell(); });
+  wc.on('did-navigate-in-page', (e, url) => { webState = Object.assign({}, webState, { url }); webTell(); });
+  wc.on('page-title-updated', (e, title) => { webState = Object.assign({}, webState, { title }); webTell(); });
+  wc.on('did-fail-load', (e, code, desc, url, isMain) => { if (isMain && code !== -3) { webState = Object.assign({}, webState, { loading: false, error: desc || 'The page did not load' }); webTell(); } });
+  webWin.on('closed', () => { webWin = null; webState = { url: '', title: '', loading: false, error: '' }; webTell(); });
+}
+ipcMain.handle('web:open', (e, raw) => {
+  let u;
+  try { raw = String(raw || '').trim(); u = new URL(/^[a-z][a-z0-9+.-]*:/i.test(raw) ? raw : 'https://' + raw); } catch (err) { return { ok: false, error: 'That does not look like a web address.' }; }
+  if (!/^https?:$/.test(u.protocol)) return { ok: false, error: 'Only web addresses starting with http or https work.' };
+  if (!webWin || webWin.isDestroyed()) webMake();
+  webState = { url: u.href, title: '', loading: true, error: '' }; webTell();
+  webWin.webContents.loadURL(u.href).catch(() => { /* did-fail-load reports it */ });
+  return { ok: true };
+});
+ipcMain.handle('web:close', () => { webDestroy(); webState = { url: '', title: '', loading: false, error: '' }; webTell(); return { ok: true }; });
+ipcMain.on('web:nav', (e, action) => {
+  if (!webWin || webWin.isDestroyed()) return;
+  const wc = webWin.webContents;
+  if (action === 'back' && wc.navigationHistory.canGoBack()) wc.navigationHistory.goBack();
+  else if (action === 'forward' && wc.navigationHistory.canGoForward()) wc.navigationHistory.goForward();
+  else if (action === 'reload') wc.reload();
+});
+const WEB_EVENTS = ['mouseDown', 'mouseUp', 'mouseMove', 'mouseWheel', 'keyDown', 'keyUp', 'char'];
+const WEB_MODS = ['shift', 'control', 'alt', 'meta', 'leftButtonDown', 'middleButtonDown', 'rightButtonDown'];
+ipcMain.on('web:input', (e, ev) => {
+  if (!webWin || webWin.isDestroyed() || !ev || !WEB_EVENTS.includes(ev.type)) return;
+  const wc = webWin.webContents, n = (v) => Math.round(Number(v) || 0);
+  const out = { type: ev.type, modifiers: (Array.isArray(ev.modifiers) ? ev.modifiers : []).filter((m) => WEB_MODS.includes(m)) };
+  if (ev.type.startsWith('mouse')) {
+    const cs = webWin.getContentSize(); // the page's real size, which can be smaller than asked if the screen is small
+    out.x = Math.max(0, Math.min(cs[0] - 1, n(ev.x))); out.y = Math.max(0, Math.min(cs[1] - 1, n(ev.y)));
+    if (ev.type === 'mouseWheel') { out.deltaX = n(ev.deltaX); out.deltaY = n(ev.deltaY); }
+    else { out.button = ['left', 'middle', 'right'].includes(ev.button) ? ev.button : 'left'; out.clickCount = Math.max(1, Math.min(3, n(ev.clickCount) || 1)); }
+    if (ev.type === 'mouseDown') wc.focus();
+  } else { if (ev.type === 'keyDown') wc.focus(); out.keyCode = String(ev.keyCode || '').slice(0, 16); }
+  try { wc.sendInputEvent(out); } catch (err) { /* ignore a bad event */ }
+});
+
 // Passes the picture handshake between the operator window and each external window.
 ipcMain.on('rtc:signal', (e, p) => {
   if (mainWin && e.sender === mainWin.webContents) {
@@ -159,6 +261,9 @@ function writeConfig(patch) {
   } catch (e) { /* the setting still works until the app closes */ }
   return next;
 }
+
+ipcMain.handle('layout:get', () => { const l = readConfig().layout; return ['A', 'B', 'C'].includes(l) ? l : ''; });
+ipcMain.handle('layout:set', (e, l) => { if (['A', 'B', 'C'].includes(l)) writeConfig({ layout: l }); return { ok: true }; });
 
 // ---------- Media folder: every photo and video in it shows up on the Videos & Photos shelf ----------
 const VIDEO_EXT = new Set(['.mp4', '.m4v', '.mov', '.webm', '.ogv', '.mkv']);
@@ -526,6 +631,10 @@ app.whenReady().then(() => {
     'time,streamSeconds,wholePcCpuPct,ffmpegFps,ffmpegSpeed,ffmpegDropped,ffmpegKbps,ffmpegFrames,renderFps,longFrames,cameraFps,cameraFrameGaps,audioDb\n');
   yt = ytModule.create({ shell, safeStorage, userDataDir: app.getPath('userData') });
   session.defaultSession.setPermissionRequestHandler((wc, permission, cb) => cb(true));
+  session.defaultSession.setDisplayMediaRequestHandler(async (request, cb) => {
+    try { const list = await desktopCapturer.getSources({ types: ['screen', 'window'], thumbnailSize: { width: 0, height: 0 } }); const hit = list.find((x) => x.id === pendingCapture); cb(hit ? { video: hit } : {}); }
+    catch (err) { cb({}); }
+  });
   session.defaultSession.setPermissionCheckHandler(() => true);
   createMainWindow();
 });

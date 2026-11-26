@@ -85,7 +85,7 @@ function create(deps) {
   }
 
   async function signIn() {
-    if (!data.clientId || !data.clientSecret) throw new Error('Add the Google client ID and secret first (Settings > Stream & recording > YouTube connection).');
+    if (!data.clientId || !data.clientSecret) throw new Error('Add the Google client ID and secret first (Settings > Going live > YouTube connection).');
     const verifier = b64url(crypto.randomBytes(48));
     const challenge = b64url(crypto.createHash('sha256').update(verifier).digest());
     const state = b64url(crypto.randomBytes(16));
@@ -165,20 +165,36 @@ function create(deps) {
     if (reason === 'liveStreamingNotEnabled') return 'Live streaming is not turned on for this YouTube channel. Enable it in YouTube Studio (it can take up to 24 hours the first time).';
     if (reason === 'quotaExceeded') return 'YouTube says the daily request limit was reached. Try again tomorrow.';
     if (reason === 'insufficientPermissions' || status === 403) return `YouTube refused the request (${reason || msg}).`;
-    return `YouTube error: ${msg}`;
+    return `YouTube error: ${msg} (HTTP ${status}${reason ? ', ' + reason : ''})`;
   }
 
+  const wait = (ms) => new Promise((r) => setTimeout(r, ms));
+  const reasonOf = (j) => (j && j.error && j.error.errors && j.error.errors[0] && j.error.errors[0].reason) || '';
+  // YouTube sometimes answers "Internal error" (a 500) for a request that works a moment later, so those are tried again.
   async function api(method, pathAndQuery, body) {
-    const token = await accessToken();
-    const res = await fetchFn(API + pathAndQuery, {
-      method,
-      headers: Object.assign({ Authorization: `Bearer ${token}` }, body ? { 'Content-Type': 'application/json' } : {}),
-      body: body ? JSON.stringify(body) : undefined,
-    });
-    const j = await res.json().catch(() => ({}));
-    if (!res.ok) throw new Error(friendly(j, res.status));
-    return j;
+    let last;
+    for (let i = 0; i < 3; i++) {
+      const token = await accessToken();
+      let res;
+      try {
+        res = await fetchFn(API + pathAndQuery, {
+          method,
+          headers: Object.assign({ Authorization: `Bearer ${token}` }, body ? { 'Content-Type': 'application/json' } : {}),
+          body: body ? JSON.stringify(body) : undefined,
+        });
+      } catch (e) { throw new Error('Could not reach YouTube. Check the internet connection.'); }
+      const j = await res.json().catch(() => ({}));
+      if (res.ok) return j;
+      const reason = reasonOf(j);
+      last = Object.assign(new Error(friendly(j, res.status)), { status: res.status, reason });
+      const transient = res.status >= 500 || ['backendError', 'internalError', 'rateLimitExceeded'].includes(reason);
+      if (!transient || i === 2) throw last;
+      await wait(1500 * (i + 1));
+    }
+    throw last;
   }
+  const isTransient = (e) => !!e && (e.status >= 500 || ['backendError', 'internalError'].includes(e.reason));
+  const at = (what, e) => { e.message = `${what}: ${e.message}`; return e; }; // says which step failed
 
   // Reuse one permanent stream key so nothing changes between services.
   async function ensureStream() {
@@ -197,17 +213,31 @@ function create(deps) {
     const d = now || new Date();
     const title = expandTemplate(tpl.title || 'Live Service {date}', d).slice(0, 100);
     const description = expandTemplate(tpl.description || '', d).slice(0, 5000);
-    const stream = await ensureStream();
+    let stream;
+    try { stream = await ensureStream(); } catch (e) { throw at('Getting your stream key', e); }
     const info = stream.cdn.ingestionInfo;
-    const b = await api('POST', '/liveBroadcasts?part=snippet,contentDetails,status', {
-      snippet: { title, description, scheduledStartTime: new Date(d.getTime() + 20000).toISOString() },
-      status: { privacyStatus: tpl.privacy || 'unlisted', selfDeclaredMadeForKids: false },
-      contentDetails: {
-        enableAutoStart: true, enableAutoStop: true, enableDvr: tpl.dvr !== false, recordFromStart: true,
-        latencyPreference: tpl.latency || 'low',
-      },
-    });
-    await api('POST', `/liveBroadcasts/bind?part=id,contentDetails&id=${encodeURIComponent(b.id)}&streamId=${encodeURIComponent(stream.id)}`);
+    // Three versions of the request, from full to bare. YouTube sometimes answers "Internal error" to a setting it dislikes on one channel.
+    const make = (level) => {
+      const body = {
+        snippet: { title, description, scheduledStartTime: new Date(d.getTime() + 30000).toISOString() },
+        status: { privacyStatus: tpl.privacy || 'unlisted' },
+      };
+      if (level < 2) body.status.selfDeclaredMadeForKids = false;
+      if (level === 0) body.contentDetails = { enableAutoStart: true, enableAutoStop: true, enableDvr: tpl.dvr !== false, recordFromStart: true, latencyPreference: tpl.latency || 'low' };
+      if (level === 1) body.contentDetails = { enableAutoStart: true, enableAutoStop: true };
+      return api('POST', '/liveBroadcasts?part=snippet,contentDetails,status', body);
+    };
+    let b, firstErr;
+    for (let level = 0; level < 3 && !b; level++) {
+      try { b = await make(level); }
+      catch (e) {
+        if (!isTransient(e)) throw at('Creating the broadcast', e);
+        firstErr = firstErr || e;
+        if (level === 2) throw at('Creating the broadcast (tried the full, plain and bare versions)', e);
+      }
+    }
+    try { await api('POST', `/liveBroadcasts/bind?part=id,contentDetails&id=${encodeURIComponent(b.id)}&streamId=${encodeURIComponent(stream.id)}`); }
+    catch (e) { throw at('Connecting the broadcast to your stream key', e); }
     return {
       broadcastId: b.id, streamId: stream.id, title,
       url: info.ingestionAddress, key: info.streamName,

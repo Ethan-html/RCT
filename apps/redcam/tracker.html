@@ -1,0 +1,559 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Motion Tracking - Redcam</title>
+<link rel="icon" href="/icon.ico" type="image/x-icon">
+<style>
+:root{
+  --bg:#101010; --surface:#171717; --surface-2:#1e1e1e; --surface-3:#262626;
+  --line:rgba(255,255,255,.08); --line-2:rgba(255,255,255,.14);
+  --text:#ebebeb; --muted:#8c8c8c; --accent:#ef4b52; --accent-hi:#f45e64; --accent-ink:#fff; --accent-rgb:239,75,82;
+  --amber:#fbbf24; --danger:#ef4444; --radius:16px;
+}
+*{box-sizing:border-box;-webkit-tap-highlight-color:transparent}
+html,body{margin:0}
+html{background:radial-gradient(1100px 520px at 85% -12%,rgba(239,75,82,.06),transparent 60%) fixed,var(--bg)}
+body{color:var(--text);font:14px/1.45 "Figtree","Segoe UI Variable","Segoe UI",system-ui,-apple-system,Roboto,"Helvetica Neue",Arial,sans-serif}
+button,input,select{font:inherit;color:inherit}
+button{cursor:pointer}
+.icon{width:18px;height:18px;fill:none;stroke:currentColor;stroke-width:1.8;stroke-linecap:round;stroke-linejoin:round}
+.hidden{display:none !important}
+*{scrollbar-width:thin;scrollbar-color:#2e2e2e transparent}
+select option{background:#1e1e1e}
+
+.wrap{max-width:1560px;margin:0 auto;padding:16px clamp(12px,2.4vw,28px) 32px}
+.top{display:flex;align-items:center;gap:10px;margin-bottom:16px}
+.top h1{margin:0 4px;font-size:clamp(16px,2vw,20px);font-weight:650;letter-spacing:-.01em;white-space:nowrap}
+.grow{flex:1}
+
+.btn{height:36px;border-radius:10px;border:1px solid var(--line);background:var(--surface-2);color:var(--text);font-weight:540;display:inline-flex;align-items:center;justify-content:center;gap:7px;padding:0 13px;text-decoration:none;transition:background .12s,border-color .12s;white-space:nowrap}
+.btn:hover{border-color:var(--line-2);background:var(--surface-3)}
+.btn.primary{background:var(--accent);color:var(--accent-ink);border-color:transparent;font-weight:650}
+.btn.primary:hover{background:var(--accent-hi)}
+.btn.ghost{background:transparent}
+.btn.danger{color:#fca5a5;border-color:rgba(239,68,68,.35)}
+.btn.danger:hover{background:rgba(239,68,68,.12)}
+.btn.sm{height:30px;padding:0 11px;font-size:12.5px;border-radius:8px}
+.btn:disabled{opacity:.45;cursor:default}
+.iconbtn{width:38px;height:38px;border-radius:50%;border:1px solid var(--line);background:var(--surface);color:var(--muted);display:grid;place-items:center}
+.iconbtn:hover{color:var(--text);border-color:var(--line-2)}
+
+.status{display:inline-flex;align-items:center;gap:8px;padding:6px 13px;border-radius:999px;background:var(--surface);border:1px solid var(--line);color:var(--muted);font-size:12.5px;white-space:nowrap;max-width:46vw;overflow:hidden;text-overflow:ellipsis}
+.status i{width:8px;height:8px;border-radius:50%;background:#6b7280;flex:none}
+.status.ok{color:var(--text)}.status.ok i{background:#34d399;box-shadow:0 0 0 3px rgba(52,211,153,.18)}
+.status.warn i{background:var(--amber);box-shadow:0 0 0 3px rgba(251,191,36,.18)}
+
+.power{display:inline-flex;align-items:center;gap:12px;height:42px;padding:0 18px 0 6px;border-radius:999px;border:1px solid var(--line-2);background:var(--surface-2);color:var(--muted);font-weight:650;white-space:nowrap}
+.power .knob{width:30px;height:30px;border-radius:50%;background:#3a404b;transition:background .2s}
+.power.on{background:rgba(239,75,82,.16);border-color:var(--accent);color:var(--accent)}
+.power.on .knob{background:var(--accent)}
+
+.layout{display:grid;grid-template-columns:minmax(0,1fr) 400px;gap:20px;align-items:start}
+@media (max-width:1040px){.layout{grid-template-columns:1fr}}
+
+/* ---- video stage ---- */
+.stage{position:relative;width:100%;aspect-ratio:16/9;border-radius:var(--radius);overflow:hidden;background:#07080a;border:1px solid var(--line-2);touch-action:none}
+.stage img{position:absolute;inset:0;width:100%;height:100%;object-fit:fill;display:block}
+.stage canvas{position:absolute;inset:0;width:100%;height:100%}
+.stage canvas.edit{cursor:none}
+.pill{position:absolute;top:12px;left:12px;padding:6px 13px;border-radius:999px;background:rgba(0,0,0,.62);backdrop-filter:blur(6px);font-size:12.5px;color:#fff;pointer-events:none}
+.paintbar{position:absolute;left:50%;bottom:14px;transform:translateX(-50%);display:flex;align-items:center;gap:10px;padding:8px 10px;border-radius:14px;background:rgba(16,18,22,.88);backdrop-filter:blur(8px);border:1px solid var(--line-2);flex-wrap:wrap;justify-content:center;max-width:calc(100% - 20px)}
+.paintbar label{display:inline-flex;align-items:center;gap:8px;color:var(--muted);font-size:12.5px}
+.paintbar input[type=range]{width:90px}
+.seg{display:inline-grid;grid-auto-flow:column;background:var(--surface-2);border:1px solid var(--line);border-radius:10px;padding:3px}
+.seg button{border:0;background:transparent;color:var(--muted);height:28px;padding:0 14px;border-radius:7px;font-weight:560}
+.seg button.on{background:var(--surface-3);color:var(--text)}
+input[type=range]{accent-color:var(--accent);height:24px;background:transparent}
+
+.startcard{position:absolute;inset:0;display:grid;place-items:center;background:rgba(7,8,10,.72);backdrop-filter:blur(3px);padding:16px}
+.startcard .box{width:min(420px,100%);padding:22px;border-radius:20px;background:var(--surface);border:1px solid var(--line-2);box-shadow:0 24px 70px rgba(0,0,0,.55)}
+.startcard h2{margin:0 0 4px;font-size:17px}
+.startcard p{margin:0 0 14px;color:var(--muted);font-size:13px}
+.startcard .btns{display:grid;gap:8px;margin-top:14px}
+
+.under{display:flex;align-items:center;gap:14px;flex-wrap:wrap;margin:12px 2px 0}
+.under label{display:inline-flex;align-items:center;gap:10px;color:var(--muted);font-size:13px}
+.under .src{color:var(--muted);font-size:12.5px;margin-left:auto}
+
+.banner{display:flex;align-items:center;gap:10px;flex-wrap:wrap;margin:12px 0 0;padding:11px 14px;border-radius:12px;border:1px solid rgba(251,191,36,.45);background:rgba(251,191,36,.08);color:#fde68a}
+.banner.bad{border-color:rgba(239,68,68,.5);background:rgba(239,68,68,.09);color:#fecaca}
+
+/* ---- zones ---- */
+.card{background:var(--surface);border:1px solid var(--line);border-radius:var(--radius);padding:16px;margin-bottom:14px}
+.card h2{margin:0 0 4px;font-size:15px;font-weight:650}
+.help{margin:0 0 12px;color:var(--muted);font-size:12.5px;line-height:1.5}
+.addrow{display:grid;grid-template-columns:repeat(4,1fr);gap:8px;margin-bottom:14px}
+.addrow .btn{flex-direction:column;height:54px;gap:2px;font-size:12px}
+.addrow .btn svg{width:20px;height:20px}
+.empty{color:var(--muted);font-size:13px;padding:10px 2px}
+
+.zone{border:1px solid var(--line);background:var(--surface-2);border-radius:14px;padding:12px;margin-bottom:10px;cursor:pointer}
+.zone.sel{border-color:var(--accent);background:rgba(239,75,82,.06)}
+.zone.off{opacity:.55}
+.zhead{display:flex;align-items:center;gap:10px}
+.zhead .dot{width:12px;height:12px;border-radius:4px;flex:none}
+.zname{flex:1;min-width:0;background:transparent;border:0;border-bottom:1px solid transparent;outline:none;font-weight:600;padding:2px 0}
+.zname:focus{border-bottom-color:var(--accent)}
+.zrow{display:flex;align-items:center;gap:10px;margin-top:10px}
+.zrow>span{color:var(--muted);font-size:12.5px;min-width:96px}
+.zrow select,.zrow input[type=time]{flex:1;min-width:0}
+.input{height:36px;padding:0 10px;border-radius:10px;border:1px solid var(--line);background:var(--surface);outline:none;width:100%}
+.input:focus{border-color:var(--accent);box-shadow:0 0 0 3px rgba(239,75,82,.16)}
+.meter{height:5px;border-radius:3px;background:var(--surface-3);overflow:hidden;margin-top:11px}
+.meter i{display:block;height:100%;width:0;background:#4b5563;transition:width .15s}
+.meter i.hit{background:var(--accent)}.meter i.blocked{background:var(--amber)}
+.zopts{margin-top:6px;padding-top:4px;border-top:1px solid var(--line)}
+.zopts .zrow input[type=range]{flex:1;min-width:0}
+.zopts b{min-width:40px;text-align:right;font-variant-numeric:tabular-nums;font-weight:600}
+.zbtns{display:flex;gap:8px;margin-top:14px}
+.days{display:flex;gap:5px;flex-wrap:wrap;margin-top:10px}
+.days button{height:30px;min-width:42px;padding:0 8px;border-radius:8px;border:1px solid var(--line);background:var(--surface);color:var(--muted);font-size:12.5px;font-weight:560}
+.days button.on{background:rgba(239,75,82,.16);border-color:var(--accent);color:var(--accent)}
+
+.switch{position:relative;width:44px;height:26px;flex:none}
+.switch input{position:absolute;inset:0;opacity:0;margin:0;cursor:pointer;z-index:1}
+.switch span{position:absolute;inset:0;border-radius:999px;background:var(--surface-3);border:1px solid var(--line-2);transition:background .18s}
+.switch span::after{content:"";position:absolute;top:3px;left:3px;width:18px;height:18px;border-radius:50%;background:#cbd0d9;transition:transform .18s,background .18s}
+.switch input:checked+span{background:var(--accent);border-color:transparent}
+.switch input:checked+span::after{transform:translateX(18px);background:var(--accent-ink)}
+
+details.card>summary{cursor:pointer;font-weight:650;font-size:14px;list-style:none;display:flex;align-items:center}
+details.card>summary::-webkit-details-marker{display:none}
+details.card>summary::after{content:"+";margin-left:auto;color:var(--muted)}
+details.card[open]>summary::after{content:"-"}
+details.card[open]>summary{margin-bottom:10px}
+.log{max-height:200px;overflow:auto;font-size:12.5px;color:var(--muted)}
+.log div{padding:4px 0;border-bottom:1px solid var(--line)}
+.log b{color:var(--text);font-weight:560;margin-right:8px;font-variant-numeric:tabular-nums}
+
+/* ---- settings modal ---- */
+.modal{position:fixed;inset:0;background:rgba(4,5,7,.72);backdrop-filter:blur(5px);display:none;align-items:center;justify-content:center;padding:14px;z-index:100}
+.modal.show{display:flex}
+.sheet{background:var(--surface);border:1px solid var(--line);border-radius:22px;width:100%;max-width:560px;max-height:100%;overflow:auto;padding:24px;box-shadow:0 30px 90px rgba(0,0,0,.6)}
+.sheet h2{margin:0 0 16px;font-size:18px;font-weight:650}
+.sheet h3{margin:20px 0 10px;font-size:11px;letter-spacing:.09em;text-transform:uppercase;color:var(--muted);font-weight:650}
+.sheet h3:first-of-type{margin-top:0}
+.field{display:block;margin-bottom:12px}
+.field>span{display:block;font-size:12px;color:var(--muted);margin-bottom:5px}
+.two{display:grid;grid-template-columns:1fr 1fr;gap:10px}
+.switchrow{display:flex;align-items:center;justify-content:space-between;gap:14px;margin:4px 0 12px}
+.switchrow small{display:block;color:var(--muted);font-size:12px}
+.vthumbs{display:grid;grid-template-columns:repeat(auto-fill,minmax(120px,1fr));gap:8px;margin:0 0 10px}
+.vthumbs:empty{display:none}
+.vthumb{position:relative;aspect-ratio:16/9;border-radius:10px;overflow:hidden;border:2px solid var(--line);background:var(--surface-2);padding:0}
+.vthumb img{position:absolute;inset:0;width:100%;height:100%;object-fit:cover}
+.vthumb span{position:absolute;left:0;right:0;bottom:0;padding:10px 6px 4px;font-size:11px;font-weight:600;background:linear-gradient(transparent,rgba(0,0,0,.8));text-align:left}
+.vthumb.sel{border-color:var(--accent)}
+.vthumb.ip{display:grid;place-items:center;font-size:12px;color:var(--muted)}
+.actions{display:flex;justify-content:flex-end;gap:10px;margin-top:20px}
+.row{display:flex;gap:8px;flex-wrap:wrap}
+details.adv>summary{cursor:pointer;color:var(--muted);font-size:13px;margin:16px 0 12px}
+
+#toasts{position:fixed;left:50%;bottom:22px;transform:translateX(-50%);display:flex;flex-direction:column;align-items:center;gap:8px;z-index:300;pointer-events:none;width:calc(100% - 24px)}
+.toast{max-width:min(520px,100%);padding:9px 16px;border-radius:999px;background:#22262d;border:1px solid var(--line-2);box-shadow:0 10px 30px rgba(0,0,0,.5);font-size:13px;text-align:center}
+.toast.error{background:#2b1719;border-color:rgba(239,68,68,.45);color:#ffd7d7}
+@media (prefers-reduced-motion:reduce){*{animation:none !important;transition:none !important}}
+</style>
+</head>
+<body>
+<div class="wrap">
+  <header class="top">
+    <a class="btn" href="/"><svg class="icon" viewBox="0 0 24 24"><polyline points="15 18 9 12 15 6"/></svg>Redcam</a>
+    <h1>Motion Tracking</h1>
+    <span class="grow"></span>
+    <span class="status" id="status"><i></i><span>Off</span></span>
+    <button class="iconbtn" id="gearBtn" type="button" title="Tracking settings" aria-label="Tracking settings">
+      <svg class="icon" viewBox="0 0 24 24"><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.7 1.7 0 0 0 .34 1.87l.06.06a2 2 0 1 1-2.83 2.83l-.06-.06a1.7 1.7 0 0 0-1.87-.34 1.7 1.7 0 0 0-1.03 1.56V21a2 2 0 1 1-4 0v-.09a1.7 1.7 0 0 0-1.11-1.56 1.7 1.7 0 0 0-1.87.34l-.06.06a2 2 0 1 1-2.83-2.83l.06-.06a1.7 1.7 0 0 0 .34-1.87 1.7 1.7 0 0 0-1.56-1.03H3a2 2 0 1 1 0-4h.09a1.7 1.7 0 0 0 1.56-1.11 1.7 1.7 0 0 0-.34-1.87l-.06-.06a2 2 0 1 1 2.83-2.83l.06.06a1.7 1.7 0 0 0 1.87.34h.01A1.7 1.7 0 0 0 10 3.09V3a2 2 0 1 1 4 0v.09a1.7 1.7 0 0 0 1.03 1.56 1.7 1.7 0 0 0 1.87-.34l.06-.06a2 2 0 1 1 2.83 2.83l-.06.06a1.7 1.7 0 0 0-.34 1.87v.01A1.7 1.7 0 0 0 20.91 10H21a2 2 0 1 1 0 4h-.09a1.7 1.7 0 0 0-1.51 1z"/></svg>
+    </button>
+    <button class="power" id="armBtn" type="button"><span class="knob"></span><span id="armTxt">Tracking is OFF</span></button>
+  </header>
+
+  <div class="layout">
+    <section>
+      <div class="stage" id="stage">
+        <img id="feed" alt="">
+        <canvas id="paint"></canvas>
+        <div class="pill hidden" id="pill"></div>
+        <div class="paintbar hidden" id="paintbar">
+          <div class="seg" id="toolSeg"><button type="button" data-tool="paint" class="on">Paint</button><button type="button" data-tool="erase">Erase</button></div>
+          <label>Brush <input id="brush" type="range" min="1" max="5" step="1" value="2"></label>
+          <button class="btn sm ghost" id="clearBtn" type="button">Clear</button>
+          <button class="btn sm primary" id="doneBtn" type="button">Done</button>
+        </div>
+        <div class="startcard hidden" id="startCard">
+          <div class="box">
+            <h2>Which preset is the camera on?</h2>
+            <p>Zones belong to the preset the camera is sitting on, so tracking needs to know where it is starting.</p>
+            <select class="input" id="startSel"></select>
+            <div class="btns">
+              <button class="btn primary" id="startMove" type="button">Move the camera to it</button>
+              <button class="btn" id="startHere" type="button">It's already there</button>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <div class="under">
+        <label>Camera is on <select class="input" id="presetSel" style="width:auto;min-width:200px"></select></label>
+        <span class="src" id="videoNote"></span>
+      </div>
+      <div class="banner hidden" id="manualBanner"></div>
+      <div class="banner bad hidden" id="errBanner"></div>
+    </section>
+
+    <aside>
+      <div class="card">
+        <h2 id="zonesTitle">Zones</h2>
+        <p class="help">Pick the edge where someone would walk off the picture. When they leave through it, the camera switches to the preset you choose.</p>
+        <div class="addrow" id="addRow">
+          <button class="btn" type="button" data-edge="left"><svg class="icon" viewBox="0 0 24 24"><polyline points="15 18 9 12 15 6"/></svg>Left</button>
+          <button class="btn" type="button" data-edge="right"><svg class="icon" viewBox="0 0 24 24"><polyline points="9 18 15 12 9 6"/></svg>Right</button>
+          <button class="btn" type="button" data-edge="top"><svg class="icon" viewBox="0 0 24 24"><polyline points="18 15 12 9 6 15"/></svg>Top</button>
+          <button class="btn" type="button" data-edge="bottom"><svg class="icon" viewBox="0 0 24 24"><polyline points="6 9 12 15 18 9"/></svg>Bottom</button>
+        </div>
+        <div id="rules"></div>
+      </div>
+      <details class="card"><summary>Recent activity</summary><div class="log" id="log"></div></details>
+    </aside>
+  </div>
+</div>
+
+<div class="modal" id="settingsModal">
+  <div class="sheet" role="dialog" aria-label="Tracking settings">
+    <h2>Tracking settings</h2>
+
+    <h3>Video source</h3>
+    <label class="field"><span>Picture comes from</span><select class="input" id="devSel"></select></label>
+    <div class="vthumbs" id="vthumbs"></div>
+    <div class="row"><button class="btn" id="scanBtn" type="button">Scan for camera inputs</button></div>
+    <p class="help" style="margin-top:8px" id="devHint">Choose a camera input on this computer (USB or capture card) for smooth video. Otherwise it uses snapshots from the IP camera, which are slower.</p>
+
+    <h3>When tracking starts</h3>
+    <label class="field"><span>Move the camera to this preset first</span><select class="input" id="sDefault"></select></label>
+    <div class="switchrow"><div>Start tracking when the app opens<small>Uses the preset above.</small></div>
+      <label class="switch"><input type="checkbox" id="sAuto"><span></span></label></div>
+
+    <details class="adv"><summary>Fine tuning</summary>
+      <div class="two">
+        <label class="field"><span>Seconds between switches</span><input class="input" id="sGap" type="number" min="1" max="300" step="1"></label>
+        <label class="field"><span>Smallest person (% of picture)</span><input class="input" id="sMinP" type="number" min="0.05" max="10" step="0.05"></label>
+      </div>
+      <div class="switchrow"><div>Notice when the camera is moved by hand<small>Reads the camera's position.</small></div>
+        <label class="switch"><input type="checkbox" id="sRead"><span></span></label></div>
+      <div class="row"><button class="btn sm" id="testPos" type="button">Test position reading</button></div>
+    </details>
+
+    <div class="actions"><button class="btn primary" id="settingsDone" type="button">Done</button></div>
+  </div>
+</div>
+<div id="toasts"></div>
+
+<script>
+"use strict";
+const $ = (s, r = document) => r.querySelector(s);
+const GW = 32, GH = 18, CELLS = GW * GH;
+const COLORS = ["#ef4b52", "#fbbf24", "#f472b6", "#60a5fa", "#a78bfa", "#fb923c", "#a3e635", "#2dd4bf"];
+const DAYS = ["Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun"];
+const EDGE_NAME = { left: "Left edge", right: "Right edge", top: "Top edge", bottom: "Bottom edge" };
+
+let cfg = { settings: {}, rules: [] };
+let st = { available: true, state: "idle", current: null, armed: false, rules: {}, events: [], person: null };
+let presets = {}, sceneCount = 30, deviceIndex = -1, devices = [];
+let selId = null, editing = false, tool = "paint", painting = false, hover = null, saveTimer = null;
+
+/* ---------------- helpers ---------------- */
+function toast(msg, type) {
+  const el = document.createElement("div");
+  el.className = "toast" + (type === "error" ? " error" : "");
+  el.textContent = String(msg || (type === "error" ? "Something went wrong" : "Done"));
+  $("#toasts").appendChild(el);
+  setTimeout(() => el.remove(), type === "error" ? 5500 : 2600);
+}
+async function api(url, body) {
+  const res = await fetch(url, body === undefined ? {} : { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(body) });
+  let d = {}; try { d = await res.json(); } catch (e) {}
+  if (!res.ok) throw new Error(d.message || "Request failed");
+  return d;
+}
+const pname = (n) => (presets[n] && presets[n].name) || ("Preset " + n);
+const esc = (s) => String(s).replace(/[&<>"]/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;" }[c]));
+const presetOptions = (sel, none) => (none ? '<option value="0">None</option>' : "") +
+  Array.from({ length: sceneCount }, (_, i) => i + 1).map((i) => `<option value="${i}"${i === sel ? " selected" : ""}>${i} - ${esc(pname(i))}</option>`).join("");
+const colorOf = (r) => COLORS[Math.max(0, cfg.rules.indexOf(r)) % COLORS.length];
+const hexA = (hex, a) => { const n = parseInt(hex.slice(1), 16); return [n >> 16, (n >> 8) & 255, n & 255, Math.round(a * 255)]; };
+function arr(r) { if (!r._arr) { r._arr = new Uint8Array(CELLS); for (let i = 0; i < CELLS; i++) r._arr[i] = r.cells[i] === "1" ? 1 : 0; } return r._arr; }
+const curRules = () => cfg.rules.filter((r) => r.source === st.current);
+const selRule = () => cfg.rules.find((r) => r.id === selId && r.source === st.current) || null;
+
+/* ---------------- saving ---------------- */
+function touch() { clearTimeout(saveTimer); saveTimer = setTimeout(saveNow, 500); }
+async function saveNow() {
+  clearTimeout(saveTimer);
+  const rules = cfg.rules.map((r) => { const o = {}; for (const k in r) if (k[0] !== "_") o[k] = r[k]; if (r._arr) o.cells = Array.from(r._arr).join(""); return o; });
+  try { await api("/api/tracker/config", { settings: cfg.settings, rules }); }
+  catch (e) { toast("Could not save: " + e.message, "error"); }
+}
+
+/* ---------------- the picture overlay ---------------- */
+const cv = $("#paint"), ctx = cv.getContext("2d"), zc = document.createElement("canvas"), zx = zc.getContext("2d");
+zc.width = GW; zc.height = GH;
+function sizeCanvas() {
+  const r = cv.getBoundingClientRect(), d = window.devicePixelRatio || 1;
+  cv.width = Math.max(2, Math.round(r.width * d)); cv.height = Math.max(2, Math.round(r.height * d)); draw();
+}
+new ResizeObserver(sizeCanvas).observe($("#stage"));
+
+function draw() {
+  const w = cv.width, h = cv.height, d = window.devicePixelRatio || 1;
+  ctx.clearRect(0, 0, w, h);
+  if (st.current != null && st.state !== "settling") {
+    ctx.imageSmoothingEnabled = true; ctx.imageSmoothingQuality = "high";
+    curRules().forEach((r) => {                                   // zones: soft coloured areas, no grid, no cells
+      const a = arr(r), img = zx.createImageData(GW, GH), c = hexA(colorOf(r), !r.enabled ? .10 : r.id === selId ? .5 : .3);
+      for (let i = 0; i < CELLS; i++) if (a[i]) img.data.set(c, i * 4);
+      zx.putImageData(img, 0, 0); ctx.drawImage(zc, 0, 0, w, h);
+    });
+  }
+  if (st.person && st.state !== "settling") {                      // the one box: the person
+    const p = st.person, x = p[0] * w, y = p[1] * h, bw = (p[2] - p[0]) * w, bh = (p[3] - p[1]) * h;
+    const inZone = Object.values(st.rules || {}).some((s) => s.frac > 0);
+    ctx.save(); ctx.strokeStyle = inZone ? "#fbbf24" : "#43c984"; ctx.lineWidth = 3 * d; ctx.shadowColor = "rgba(0,0,0,.6)"; ctx.shadowBlur = 6 * d;
+    const rad = 10 * d; ctx.beginPath(); if (ctx.roundRect) ctx.roundRect(x, y, bw, bh, rad); else ctx.rect(x, y, bw, bh); ctx.stroke(); ctx.restore();
+  }
+  if (editing && hover) {                                          // brush outline while reshaping
+    const size = parseInt($("#brush").value, 10) || 2, cw = w / GW, ch = h / GH;
+    ctx.strokeStyle = "rgba(255,255,255,.95)"; ctx.lineWidth = 2 * d; ctx.beginPath(); ctx.ellipse(hover.x * w, hover.y * h, (size - .5) * cw, (size - .5) * ch, 0, 0, 7); ctx.stroke();
+  }
+}
+function pointerCell(e) { const b = cv.getBoundingClientRect(); return { x: (e.clientX - b.left) / b.width, y: (e.clientY - b.top) / b.height }; }
+function paintAt(p) {
+  const r = selRule(); if (!r) return;
+  const c0 = Math.floor(p.x * GW), r0 = Math.floor(p.y * GH), size = parseInt($("#brush").value, 10) || 2, a = arr(r), v = tool === "paint" ? 1 : 0;
+  for (let dr = -size; dr <= size; dr++) for (let dc = -size; dc <= size; dc++) {
+    const c = c0 + dc, rr = r0 + dr;
+    if (c < 0 || c >= GW || rr < 0 || rr >= GH || Math.hypot(dc, dr) > size - .5) continue;
+    a[rr * GW + c] = v;
+  }
+}
+cv.addEventListener("pointerdown", (e) => { if (!editing || !selRule()) return; e.preventDefault(); painting = true; try { cv.setPointerCapture(e.pointerId); } catch (x) {} paintAt(pointerCell(e)); draw(); });
+cv.addEventListener("pointermove", (e) => { hover = editing ? pointerCell(e) : null; if (painting) paintAt(hover); draw(); });
+cv.addEventListener("pointerleave", () => { hover = null; draw(); });
+["pointerup", "pointercancel"].forEach((n) => cv.addEventListener(n, () => { if (painting) { painting = false; touch(); } }));
+document.querySelectorAll("#toolSeg button").forEach((b) => b.addEventListener("click", () => {
+  tool = b.dataset.tool; document.querySelectorAll("#toolSeg button").forEach((x) => x.classList.toggle("on", x === b));
+}));
+$("#clearBtn").addEventListener("click", () => { const r = selRule(); if (r) { arr(r).fill(0); draw(); touch(); } });
+$("#doneBtn").addEventListener("click", () => setEditing(false));
+document.addEventListener("keydown", (e) => { if (e.key === "Escape" && editing) setEditing(false); });
+function setEditing(on) {
+  editing = on && !!selRule(); hover = null;
+  $("#paintbar").classList.toggle("hidden", !editing); cv.classList.toggle("edit", editing); cv.style.pointerEvents = editing ? "auto" : "none";
+  renderRules(); draw();
+}
+
+/* ---------------- zones ---------------- */
+function addZone(kind) {
+  if (st.current == null) return;
+  const tc = 1, tr = 1, a = new Uint8Array(CELLS);                // one cell thick; use Reshape to make it thicker
+  for (let i = 0; i < CELLS; i++) {
+    const col = i % GW, row = Math.floor(i / GW);
+    if ((kind === "left" && col < tc) || (kind === "right" && col >= GW - tc) || (kind === "top" && row < tr) || (kind === "bottom" && row >= GH - tr)) a[i] = 1;
+  }
+  const dflt = cfg.settings.defaultPreset && cfg.settings.defaultPreset !== st.current ? cfg.settings.defaultPreset : (st.current === 1 ? 2 : 1);
+  const r = { id: Math.random().toString(16).slice(2, 10), name: EDGE_NAME[kind], source: st.current, target: dflt, cells: "0".repeat(CELLS), _arr: a,
+    enabled: true, mode: "exit", sensitivity: 6, hold: 0.8, condEnabled: false, start: "08:00", end: "17:00", days: [] };
+  cfg.rules.push(r); selId = r.id; renderRules(); draw(); touch();
+  toast(`${r.name} zone added. Choose which preset it goes to.`);
+}
+document.querySelectorAll("[data-edge]").forEach((b) => b.addEventListener("click", () => addZone(b.dataset.edge)));
+
+function renderRules() {
+  const box = $("#rules"), list = curRules();
+  $("#zonesTitle").textContent = st.current != null ? `Zones on preset ${st.current} - ${pname(st.current)}` : "Zones";
+  $("#addRow").querySelectorAll("button").forEach((b) => (b.disabled = st.current == null));
+  box.innerHTML = "";
+  if (st.current == null) { box.innerHTML = '<div class="empty">Choose which preset the camera is on to add zones.</div>'; return; }
+  if (!list.length) { box.innerHTML = '<div class="empty">No zones on this preset yet. Add one above.</div>'; return; }
+  list.forEach((r) => {
+    const sel = r.id === selId, el = document.createElement("div");
+    el.className = "zone" + (sel ? " sel" : "") + (r.enabled ? "" : " off"); el.dataset.id = r.id;
+    let html = `<div class="zhead"><span class="dot" style="background:${colorOf(r)}"></span>
+      <input class="zname" maxlength="40" value="${esc(r.name)}" aria-label="Zone name">
+      <label class="switch" title="On / off"><input type="checkbox" class="zon" ${r.enabled ? "checked" : ""}><span></span></label></div>
+      <div class="zrow"><span>Goes to preset</span><select class="input zt">${presetOptions(r.target)}</select></div>
+      <div class="meter"><i></i></div>`;
+    if (sel) {
+      const exit = r.mode !== "enter";
+      html += `<div class="zopts">
+        <div class="zrow"><span>Triggers when</span><select class="input zmode">
+          <option value="exit"${exit ? " selected" : ""}>Someone walks out of it</option>
+          <option value="enter"${!exit ? " selected" : ""}>Anything moves in it</option></select></div>
+        <div class="zrow"><span>${exit ? "Wait after they leave" : "Movement must last"}</span><input type="range" class="zhold" min="0" max="5" step="0.1" value="${r.hold}"><b class="zholdv">${r.hold}s</b></div>
+        ${exit ? "" : `<div class="zrow"><span>Sensitivity</span><input type="range" class="zsens" min="1" max="60" step="1" value="${r.sensitivity}"><b class="zsensv">${r.sensitivity}%</b></div>`}
+        <div class="zrow"><span>Only at certain times</span><span class="grow" style="min-width:0"></span><label class="switch"><input type="checkbox" class="zcond" ${r.condEnabled ? "checked" : ""}><span></span></label></div>
+        ${r.condEnabled ? `<div class="zrow"><span>From / until</span><input class="input zstart" type="time" value="${r.start}"><input class="input zend" type="time" value="${r.end}"></div>
+          <div class="days">${DAYS.map((d, i) => `<button type="button" data-d="${i}" class="${r.days.includes(i) ? "on" : ""}">${d}</button>`).join("")}</div>
+          <p class="help" style="margin:8px 0 0">No days ticked means every day.</p>` : ""}
+        <div class="zbtns"><button class="btn sm ${editing ? "primary" : ""} zshape" type="button">${editing ? "Reshaping..." : "Reshape"}</button><button class="btn sm danger zdel" type="button">Delete</button></div>
+      </div>`;
+    }
+    el.innerHTML = html;
+    el.addEventListener("click", (e) => { if (e.target.closest("select,input,button,label,.days")) return; if (selId !== r.id) { if (editing) setEditing(false); selId = r.id; renderRules(); draw(); } });
+    const q = (s) => el.querySelector(s);
+    q(".zname").addEventListener("focus", () => { if (selId !== r.id) { selId = r.id; renderRules(); draw(); } });
+    q(".zname").addEventListener("input", (e) => { r.name = e.target.value.slice(0, 40) || "Zone"; touch(); });
+    q(".zon").addEventListener("change", (e) => { r.enabled = e.target.checked; el.classList.toggle("off", !r.enabled); draw(); touch(); });
+    q(".zt").addEventListener("change", (e) => { r.target = parseInt(e.target.value, 10); touch(); });
+    if (sel) {
+      q(".zmode").addEventListener("change", (e) => { r.mode = e.target.value; renderRules(); touch(); });
+      q(".zhold").addEventListener("input", (e) => { r.hold = parseFloat(e.target.value); q(".zholdv").textContent = r.hold + "s"; touch(); });
+      const zs = q(".zsens"); if (zs) zs.addEventListener("input", (e) => { r.sensitivity = parseFloat(e.target.value); q(".zsensv").textContent = r.sensitivity + "%"; touch(); });
+      q(".zcond").addEventListener("change", (e) => { r.condEnabled = e.target.checked; renderRules(); touch(); });
+      const s1 = q(".zstart"), s2 = q(".zend");
+      if (s1) { s1.addEventListener("change", (e) => { if (e.target.value) { r.start = e.target.value; touch(); } }); s2.addEventListener("change", (e) => { if (e.target.value) { r.end = e.target.value; touch(); } }); }
+      el.querySelectorAll(".days button").forEach((b) => b.addEventListener("click", () => {
+        const d = parseInt(b.dataset.d, 10), i = r.days.indexOf(d); if (i >= 0) r.days.splice(i, 1); else r.days.push(d); r.days.sort(); b.classList.toggle("on", i < 0); touch();
+      }));
+      q(".zshape").addEventListener("click", () => setEditing(!editing));
+      q(".zdel").addEventListener("click", () => { if (!confirm(`Delete "${r.name}"?`)) return; cfg.rules = cfg.rules.filter((x) => x !== r); selId = null; setEditing(false); renderRules(); draw(); touch(); });
+    }
+    box.appendChild(el);
+  });
+}
+function updateMeters() {
+  document.querySelectorAll(".zone").forEach((el) => {
+    const s = st.rules && st.rules[el.dataset.id], i = el.querySelector(".meter i");
+    if (!s) { i.style.width = "0"; i.className = ""; return; }
+    i.style.width = Math.min(100, s.frac / Math.max(.001, s.need) * 100) + "%"; i.className = s.hit ? (s.cond ? "hit" : "blocked") : "";
+  });
+}
+
+/* ---------------- preset choice ---------------- */
+async function selectPreset(n, move) {
+  try { await api("/api/tracker/select", { preset: n, move }); selId = null; setEditing(false); renderRules(); }
+  catch (e) { toast(e.message, "error"); }
+}
+$("#presetSel").addEventListener("change", (e) => { if (e.target.value) selectPreset(parseInt(e.target.value, 10), true); });
+$("#startMove").addEventListener("click", () => selectPreset(parseInt($("#startSel").value, 10), true));
+$("#startHere").addEventListener("click", () => selectPreset(parseInt($("#startSel").value, 10), false));
+$("#armBtn").addEventListener("click", async () => {
+  try { await saveNow(); await api("/api/tracker/arm", { armed: !st.armed }); } catch (e) { toast(e.message, "error"); }
+});
+
+/* ---------------- settings ---------------- */
+function renderDevices() {
+  const sel = $("#devSel"), box = $("#vthumbs"), known = new Set(devices.map((d) => d.index));
+  let html = '<option value="-1">IP camera snapshots (default)</option>';
+  if (deviceIndex >= 0 && !known.has(deviceIndex)) html += `<option value="${deviceIndex}">Camera input ${deviceIndex} (saved)</option>`;
+  devices.forEach((d) => { html += `<option value="${d.index}">${d.label} (${d.width}x${d.height})</option>`; });
+  sel.innerHTML = html; sel.value = String(deviceIndex); box.textContent = "";
+  if (!devices.length) return;
+  const mk = (value, inner, cls) => {
+    const b = document.createElement("button"); b.type = "button"; b.className = "vthumb " + cls + (deviceIndex === value ? " sel" : ""); b.innerHTML = inner;
+    b.addEventListener("click", () => chooseDevice(value)); return b;
+  };
+  box.appendChild(mk(-1, "IP snapshots", "ip"));
+  devices.forEach((d) => box.appendChild(mk(d.index, `<img alt="" src="${d.thumb}"><span>${d.label}</span>`, "")));
+}
+async function chooseDevice(i) {
+  try { await api("/api/video/device", { index: i }); deviceIndex = i; renderDevices(); toast(i < 0 ? "Using snapshots from the IP camera" : `Switching to camera input ${i}...`); }
+  catch (e) { toast(e.message, "error"); }
+}
+$("#devSel").addEventListener("change", (e) => chooseDevice(parseInt(e.target.value, 10)));
+$("#scanBtn").addEventListener("click", async () => {
+  const b = $("#scanBtn"); b.disabled = true; b.textContent = "Scanning...";
+  try { const d = await api("/api/video/devices"); devices = d.devices || []; renderDevices();
+    toast(devices.length ? `Found ${devices.length} camera input${devices.length > 1 ? "s" : ""}. Click one to use it.` : "No camera inputs found on this computer", devices.length ? undefined : "error"); }
+  catch (e) { toast(e.message, "error"); }
+  b.disabled = false; b.textContent = "Scan for camera inputs";
+});
+function fillSettings() {
+  const s = cfg.settings;
+  $("#sDefault").innerHTML = presetOptions(s.defaultPreset || 0, true); $("#sAuto").checked = !!s.autoStart;
+  $("#sGap").value = s.minGap; $("#sMinP").value = s.minPerson; $("#sRead").checked = s.positionReadback !== false; renderDevices();
+}
+$("#gearBtn").addEventListener("click", () => { fillSettings(); $("#settingsModal").classList.add("show"); });
+$("#settingsDone").addEventListener("click", async () => { $("#settingsModal").classList.remove("show"); await saveNow(); });
+$("#settingsModal").addEventListener("pointerdown", (e) => { if (e.target.id === "settingsModal") $("#settingsDone").click(); });
+$("#sDefault").addEventListener("change", (e) => { cfg.settings.defaultPreset = parseInt(e.target.value, 10) || 0; touch(); });
+$("#sAuto").addEventListener("change", (e) => {
+  if (e.target.checked && !cfg.settings.defaultPreset) { toast("Choose a preset above first", "error"); e.target.checked = false; return; }
+  cfg.settings.autoStart = e.target.checked; touch();
+});
+$("#sGap").addEventListener("change", (e) => { cfg.settings.minGap = parseFloat(e.target.value) || 8; touch(); });
+$("#sMinP").addEventListener("change", (e) => { cfg.settings.minPerson = parseFloat(e.target.value) || 0.4; touch(); });
+$("#sRead").addEventListener("change", (e) => { cfg.settings.positionReadback = e.target.checked; touch(); });
+$("#testPos").addEventListener("click", async () => {
+  try { const d = await api("/api/tracker/position"); toast(`The camera answered: pan ${d.pos.pan}, tilt ${d.pos.tilt}, zoom ${d.pos.zoom}`); } catch (e) { toast(e.message, "error"); }
+});
+
+/* ---------------- status ---------------- */
+let last = { cur: undefined, state: "", person: "", manual: "", events: "" };
+function ui() {
+  const pill = $("#status"), set = (cls, text) => { pill.className = "status " + cls; pill.lastChild.textContent = text; };
+  const watching = st.armed && st.state === "ready";
+  if (!st.available) set("warn", "OpenCV is missing");
+  else if (st.state === "settling") set("warn", st.message || "Moving camera...");
+  else if (st.state === "manual") set("warn", "Paused: camera was moved");
+  else if (watching) set("ok", `Watching preset ${st.current} - ${pname(st.current)}` + (st.person ? " | person in view" : ""));
+  else if (st.current != null) set("", `Off | camera on preset ${st.current}`);
+  else set("", "Choose a starting preset");
+  $("#armBtn").classList.toggle("on", st.armed); $("#armTxt").textContent = st.armed ? "Tracking is ON" : "Tracking is OFF";
+  $("#errBanner").classList.toggle("hidden", st.available); if (!st.available) $("#errBanner").textContent = st.error;
+
+  const pt = st.state === "settling" ? (st.message || "Moving camera...") : "";
+  $("#pill").textContent = pt; $("#pill").classList.toggle("hidden", !pt);
+  $("#startCard").classList.toggle("hidden", !(st.current == null && st.state !== "settling"));
+  const vn = st.videoNote ? (st.source === "device" ? `${st.videoNote} | ${st.fps} fps` : st.videoNote) : "";
+  if ($("#videoNote").textContent !== vn) $("#videoNote").textContent = vn;
+
+  const mkey = st.state === "manual" ? "manual" : "";
+  if (mkey !== last.manual) {
+    last.manual = mkey; const b = $("#manualBanner"); b.classList.toggle("hidden", !mkey);
+    if (mkey) {
+      b.innerHTML = `<span><b>The camera is not on a known preset.</b> Tell the app where it is:</span><select class="input" id="mbSel" style="width:auto">${presetOptions(st.current || 1)}</select>
+        <button class="btn sm primary" id="mbHere" type="button">It's on this preset</button><button class="btn sm" id="mbGo" type="button">Move it there</button>`;
+      $("#mbHere").addEventListener("click", () => selectPreset(parseInt($("#mbSel").value, 10), false));
+      $("#mbGo").addEventListener("click", () => selectPreset(parseInt($("#mbSel").value, 10), true));
+    }
+  }
+  if (st.current !== last.cur || st.state !== last.state) {
+    const curChanged = st.current !== last.cur; last.cur = st.current; last.state = st.state;
+    if (curChanged && !selRule()) { selId = null; if (editing) setEditing(false); }
+    $("#presetSel").innerHTML = (st.current == null ? '<option value="" selected>Choose...</option>' : "") + presetOptions(st.current || 0);
+    $("#presetSel").disabled = st.state === "settling";
+    renderRules(); draw();
+  }
+  const pj = JSON.stringify(st.person);
+  if (pj !== last.person) { last.person = pj; draw(); }
+  updateMeters();
+  const ev = JSON.stringify(st.events);
+  if (ev !== last.events) {
+    last.events = ev;
+    $("#log").innerHTML = st.events.length ? st.events.slice().reverse().map((e) => `<div><b>${e.t}</b>${esc(e.text)}</div>`).join("") : "<div>Nothing yet.</div>";
+  }
+}
+async function poll() {
+  try { st = await (await fetch("/api/tracker/status")).json(); ui(); }
+  catch (e) { const p = $("#status"); p.className = "status warn"; p.lastChild.textContent = "App not responding"; }
+  setTimeout(poll, 300);
+}
+
+/* ---------------- video + start ---------------- */
+function startFeed() { $("#feed").src = "/api/tracker/stream?" + Date.now(); }
+$("#feed").addEventListener("error", () => setTimeout(startFeed, 2500));
+
+(async function init() {
+  try { const s = await (await fetch("/api/settings")).json(); sceneCount = parseInt(s.sceneCount, 10) || 30; deviceIndex = parseInt(s.videoDevice, 10) >= 0 ? parseInt(s.videoDevice, 10) : -1; } catch (e) {}
+  try { presets = await (await fetch("/presets.json?" + Date.now())).json(); } catch (e) {}
+  try { cfg = await (await fetch("/api/tracker/config")).json(); } catch (e) { toast("Could not load tracking settings", "error"); }
+  const first = cfg.settings.defaultPreset || 1;
+  $("#startSel").innerHTML = presetOptions(first); fillSettings(); sizeCanvas(); cv.style.pointerEvents = "none"; startFeed();
+  try { st = await (await fetch("/api/tracker/status")).json(); } catch (e) {}
+  ui(); poll();
+})();
+</script>
+</body>
+</html>

@@ -4,13 +4,39 @@ const video = document.createElement('video');
 video.muted = true;
 video.playsInline = true;
 let videoReady = false;
+// Screen capture: a window or a whole monitor, optionally cropped. app.js starts it; the crop is kept as fractions of each side so it survives resizing.
+const screenVideo = document.createElement('video');
+screenVideo.muted = true; screenVideo.playsInline = true;
+const screenCap = { ready: false, name: '', crop: { l: 0, t: 0, r: 0, b: 0 }, fit: 'fit' };
+function screenSrcRect(vw, vh) { // the part of the captured picture that is kept
+  const c = screenCap.crop, sx = Math.round(vw * c.l), sy = Math.round(vh * c.t);
+  return { sx, sy, sw: Math.max(8, Math.round(vw * (1 - c.l - c.r))), sh: Math.max(8, Math.round(vh * (1 - c.t - c.b))) };
+}
+function drawScreenPicture(ctx, x, y, w, h) {
+  ctx.fillStyle = '#000'; ctx.fillRect(x, y, w, h);
+  const vw = screenVideo.videoWidth, vh = screenVideo.videoHeight;
+  if (!screenCap.ready || !vw || !vh || screenVideo.readyState < 2) {
+    ctx.fillStyle = '#666'; ctx.textAlign = 'center'; ctx.font = `${h * 0.05}px "Segoe UI", Arial`;
+    ctx.fillText(screenCap.name || screenCap.ready ? 'Waiting for the screen picture...' : 'No screen chosen (Settings > Camera & sound)', x + w / 2, y + h / 2); ctx.textAlign = 'left';
+    return;
+  }
+  const r = screenSrcRect(vw, vh), fill = screenCap.fit === 'fill';
+  const k = fill ? Math.max(w / r.sw, h / r.sh) : Math.min(w / r.sw, h / r.sh);
+  if (fill) { // fills the whole frame; the edges that do not fit are cut off
+    const sw = w / k, sh = h / k;
+    ctx.drawImage(screenVideo, r.sx + (r.sw - sw) / 2, r.sy + (r.sh - sh) / 2, sw, sh, x, y, w, h);
+  } else ctx.drawImage(screenVideo, r.sx, r.sy, r.sw, r.sh, x + (w - r.sw * k) / 2, y + (h - r.sh * k) / 2, r.sw * k, r.sh * k);
+}
 
 let nextId = 1;
-const isBase = (t) => t === 'camera' || t === 'tech' || t === 'media';
+const isBase = (t) => t === 'camera' || t === 'screen' || t === 'tech' || t === 'media' || t === 'web';
+const isPlainBase = (t) => t === 'camera' || t === 'screen'; // the two live pictures: the camera, or a captured screen/window
 const rank = (it) => (isBase(it.type) ? 0 : 1);
 const clone = (x) => JSON.parse(JSON.stringify(x));
 let onSceneChange = () => {}; // app.js replaces this
 let drawMediaItem = () => {}; // app.js draws video/photo clips
+let drawWebItem = () => {}; // app.js draws the web page
+const isOverBase = (b) => !!b && (b.type === 'media' || b.type === 'web'); // a playing video or a web page: lower thirds and photos go on top of it
 
 function newItem(type, extra) {
   const it = { id: nextId++, type, x: 0, y: 0, w: W, h: H };
@@ -33,7 +59,7 @@ function ensureBase(items) {
 function loadScene(s) {
   if (!s) return;
   try {
-    const noMedia = (l) => l.filter((i) => i.type !== 'media'); // loaded videos do not survive a restart
+    const noMedia = (l) => l.filter((i) => i.type !== 'media' && i.type !== 'web'); // loaded videos and web pages do not survive a restart
     if (Array.isArray(s.preview) && s.preview.length) preview.items = ensureBase(noMedia(s.preview));
     if (Array.isArray(s.live) && s.live.length) live.items = ensureBase(noMedia(s.live));
     if (s.v !== 2) [preview.items, live.items].forEach((l) => l.forEach((i) => { if (i.type === 'verse') Object.assign(i, { x: 0, y: 790, w: 1920, h: 290 }); }));
@@ -181,7 +207,7 @@ function setLive(items, instant, opts) {
 // Changes only the Output's base picture (camera, video). Preview is never touched, so a video on the stream does not show in Preview.
 function setLiveBase(type, extra, fade, plain) {
   let it;
-  if (type === 'camera') { const pb = preview.items.find((i) => isBase(i.type)); it = pb && pb.type === 'camera' ? clone(pb) : newItem('camera'); }
+  if (isPlainBase(type)) { const pb = preview.items.find((i) => isBase(i.type)); it = pb && pb.type === type ? clone(pb) : newItem(type); }
   else it = newItem(type, extra);
   const keep = plain ? [] : clone(live.items).filter((i) => !isBase(i.type));
   setLive([it, ...keep], !fade);
@@ -191,28 +217,33 @@ const liveBaseItem = () => live.items.find((i) => isBase(i.type)) || null;
 function sigList(list, skipBase) {
   return JSON.stringify(list.filter((i) => !(skipBase && isBase(i.type))).map((i) => (isBase(i.type) ? { type: i.type, clipId: i.clipId } : i)));
 }
-// Lower thirds in Preview are things waiting to go up. Once sent they leave Preview, so having none there never means "take it off the Output".
+// Lower thirds and photos in Preview are things waiting to go up. Once sent they leave Preview, so having none there never means "take it off the Output".
+const isOneShot = (t) => isLower(t) || t === 'photo';
 function previewDiffers() {
-  const skip = !!(liveBaseItem() && liveBaseItem().type === 'media');
-  const pRest = preview.items.filter((i) => !isLower(i.type)), lRest = live.items.filter((i) => !isLower(i.type));
-  return preview.items.some((i) => isLower(i.type)) || sigList(pRest, skip) !== sigList(lRest, skip);
+  const skip = isOverBase(liveBaseItem());
+  const pRest = preview.items.filter((i) => !isOneShot(i.type)), lRest = live.items.filter((i) => !isOneShot(i.type));
+  return preview.items.some((i) => isOneShot(i.type)) || sigList(pRest, skip) !== sigList(lRest, skip);
 }
-// SEND with a blank Preview takes the lower third that is on the Output off.
-const liveHasLower = () => live.items.some((i) => isLower(i.type));
+// SEND with a blank Preview takes the lower third and the photo that are on the Output off.
+const liveHasLower = () => live.items.some((i) => isOneShot(i.type));
 const sendWouldClear = () => !previewDiffers() && liveHasLower();
 function goLive() {
   if (!previewDiffers()) {
-    if (liveHasLower()) setLive(live.items.filter((i) => !isLower(i.type)), false); // the blank Preview is sent too
+    if (liveHasLower()) setLive(live.items.filter((i) => !isOneShot(i.type)), false); // the blank Preview is sent too
     return;
   }
-  const lb = liveBaseItem(), pRest = preview.items.filter((i) => !isLower(i.type)), pLower = preview.items.filter((i) => isLower(i.type));
-  const keepLower = clone(live.items).filter((i) => isLower(i.type));
-  const body = lb && lb.type === 'media' ? [clone(lb), ...clone(pRest).filter((i) => !isBase(i.type))] : clone(pRest); // overlays go on top of a playing video
-  setLive([...body, ...(pLower.length ? clone(pLower) : keepLower)], false); // the lower third in Preview replaces the one on the Output; otherwise the Output keeps its own
-  preview.items = pRest; preview.sel = null; // Preview is empty again, ready for the next one
+  const lb = liveBaseItem(), pBase = preview.items.filter((i) => !isOneShot(i.type));
+  const pLower = preview.items.filter((i) => isLower(i.type)), pPhoto = preview.items.filter((i) => i.type === 'photo');
+  const keepLower = clone(live.items).filter((i) => isLower(i.type)), keepPhoto = clone(live.items).filter((i) => i.type === 'photo');
+  const body = isOverBase(lb) ? [clone(lb), ...clone(pBase).filter((i) => !isBase(i.type))] : clone(pBase); // overlays go on top of a playing video
+  // A photo or lower third in Preview replaces the one on the Output; otherwise the Output keeps its own.
+  setLive([...body, ...(pPhoto.length ? clone(pPhoto) : keepPhoto), ...(pLower.length ? clone(pLower) : keepLower)], false);
+  preview.items = pBase; preview.sel = null; // Preview is empty again (photo and lower third are gone from it), ready for the next one
   commit();
 }
-function clearAll() { setLive([newItem('camera')], true); }
+// The plain picture to go back to: what Preview has as its base if that is the camera or a screen, otherwise the camera.
+function plainBaseType() { const pb = preview.items.find((i) => isBase(i.type)); return pb && isPlainBase(pb.type) ? pb.type : 'camera'; }
+function clearAll() { setLive([newItem(plainBaseType())], true); }
 function techNow() { setLive([newItem('tech')], true); }
 function restoreLive() {
   if (!live.prev) return;
@@ -237,6 +268,8 @@ function drawItem(ctx, it, alpha, dy, e) {
       ctx.font = `${it.h * 0.06}px "Segoe UI", Arial`;
       ctx.fillText('No camera', it.x + it.w / 2, it.y + it.h / 2); ctx.textAlign = 'left';
     }
+  } else if (it.type === 'screen') {
+    drawScreenPicture(ctx, it.x, it.y, it.w, it.h);
   } else if (it.type === 'tech') {
     const g = ctx.createLinearGradient(0, it.y, 0, it.y + it.h);
     g.addColorStop(0, '#12306b'); g.addColorStop(1, '#0a1838');
@@ -253,6 +286,10 @@ function drawItem(ctx, it, alpha, dy, e) {
   else if (it.type === 'media') {
     ctx.fillStyle = '#000'; ctx.fillRect(it.x, it.y, it.w, it.h);
     drawMediaItem(ctx, it);
+  }
+  else if (it.type === 'web') {
+    ctx.fillStyle = '#000'; ctx.fillRect(it.x, it.y, it.w, it.h);
+    drawWebItem(ctx, it);
   }
   else if (it.type === 'photo') {
     drawMediaItem(ctx, it);
@@ -367,6 +404,17 @@ function attachPreviewMouse(canvas) {
       if (!isFixed(it)) drag = { mode: 'move', item: it, start: p, orig: { x: it.x, y: it.y } };
     } else preview.sel = null;
     onSceneChange();
+  });
+  // Double-click a photo in Preview: it grows (same shape) until it touches the edges of the screen.
+  canvas.addEventListener('dblclick', (e) => {
+    const it = hitItem(toScene(e));
+    if (!it || it.type !== 'photo' || !it.w || !it.h) return;
+    drag = null; guides.x = null; guides.y = null;
+    const k = Math.min(W / it.w, H / it.h);
+    it.w = Math.round(it.w * k); it.h = Math.round(it.h * k);
+    it.x = Math.round((W - it.w) / 2); it.y = Math.round((H - it.h) / 2);
+    preview.sel = it.id;
+    commit();
   });
   window.addEventListener('mousemove', (e) => {
     const p = toScene(e);

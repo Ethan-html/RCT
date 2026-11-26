@@ -42,7 +42,7 @@ canvas { display: block; background: #000; }
 .audiobox { display: flex; align-items: center; gap: 10px; flex: none; }
 .meters { display: flex; flex-direction: column; gap: 3px; width: 150px; }
 .mbar { display: block; height: 7px; border-radius: 4px; background: #0b0b0b; border: 1px solid var(--line); overflow: hidden; position: relative; }
-.mbar i { position: absolute; inset: 0; background: linear-gradient(90deg, #3fbf7f 0 68%, #f2b441 68% 88%, #ef4b52 88%); clip-path: inset(0 100% 0 0); transition: clip-path .06s linear; }
+.mbar i { position: absolute; inset: 0; background: linear-gradient(90deg, #3fbf7f 0 66.67%, #f2b441 66.67% 85%, #ef4b52 85%); clip-path: inset(0 100% 0 0); }
 
 /* controls: same place, always */
 #rail { display: flex; flex-direction: column; gap: 10px; padding: 14px 12px; background: var(--panel); border-left: 1px solid var(--line); border-right: 1px solid var(--line); min-width: 0; overflow: hidden; }
@@ -131,7 +131,7 @@ button.stream.stop { background: var(--red); border-color: var(--red); color: #f
 .status { margin-top: 10px; padding: 9px 12px; border-radius: 8px; background: #0f0f0f; }
 .status.good { color: #86d9a0; } .status.bad { color: #f2a2a5; } .status.warn { color: #f3cd7a; }
 .small { color: var(--muted); font-size: 13px; margin-top: 6px; line-height: 1.4; }
-.meter { height: 10px; background: #0f0f0f; border: 1px solid var(--line2); border-radius: 5px; margin-top: 10px; overflow: hidden; } #meterBar { height: 100%; width: 0; background: var(--green); }
+.meter { height: 10px; background: #0f0f0f; border: 1px solid var(--line2); border-radius: 5px; margin-top: 10px; overflow: hidden; } 
 table.stats { width: 100%; border-collapse: collapse; margin-top: 10px; } table.stats td { padding: 4px 6px; border-bottom: 1px solid var(--line); } table.stats td:first-child { color: var(--muted); width: 62%; }
 pre { max-height: 180px; overflow: auto; background: #08090b; padding: 8px; font: 12px Consolas, monospace; white-space: pre-wrap; border-radius: 8px; margin-top: 16px; }
 .check-line { margin: 8px 0; display: flex; gap: 10px; } .ok { color: #86d9a0; } .no { color: #f2a2a5; } .wn { color: #f3cd7a; }
@@ -412,3 +412,233 @@ button.primary { font-weight: 650; }
 .gitem .gx:hover { background: #c0392b; }
 .lowerwrap4 { grid-template-columns: 1fr; }
 .qcard[hidden] { display: none; }
+
+
+/* ---------- audio meters: green below -20 dB, yellow -20 to -9 (where speech should sit), red above -9 ---------- */
+.mbar { overflow: visible; }
+.mbar i { border-radius: 999px; }
+.pk { position: absolute; top: -1px; bottom: -1px; width: 2px; background: #fff; left: 0; opacity: .85; border-radius: 1px; }
+.lvl { margin-top: 10px; }
+.lvlbar { position: relative; height: 16px; border-radius: 999px; background: linear-gradient(90deg, #1d3a2b 0 66.67%, #4a3d1a 66.67% 85%, #4a2224 85%); border: 1px solid var(--line2); overflow: hidden; }
+.lvlbar > i { position: absolute; inset: 0; background: linear-gradient(90deg, #3fbf7f 0 66.67%, #f2b441 66.67% 85%, #ef4b52 85%); clip-path: inset(0 100% 0 0); }
+.lvlbar .tick { position: absolute; top: 0; bottom: 0; left: 80%; width: 2px; background: #fff; opacity: .9; }
+.lvlscale { position: relative; height: 16px; margin-top: 3px; font-size: 11px; color: var(--faint); }
+.lvlscale span { position: absolute; transform: translateX(-50%); white-space: nowrap; }
+.lvlscale span:nth-child(1) { left: 2%; } .lvlscale span:nth-child(2) { left: 33.3%; } .lvlscale span:nth-child(3) { left: 66.7%; } .lvlscale span:nth-child(4) { left: 85%; } .lvlscale span:nth-child(5) { left: 97%; }
+
+/* ---------- Camera & sound: crop box, Save bar ---------- */
+#cropCanvas { display: block; width: 100%; height: auto; aspect-ratio: 16 / 9; border-radius: 10px; box-shadow: 0 0 0 1px var(--line2); touch-action: none; }
+.savebar { position: sticky; bottom: 0; margin-top: 18px; padding: 12px 16px; display: flex; align-items: center; gap: 14px; background: var(--panel); border: 1px solid var(--line2); border-radius: var(--r-card); z-index: 2; }
+.savebar button { min-width: 120px; }
+.savebar .small { margin: 0; }
+.savebar.dirty { border-color: var(--accent); }
+.savebar.dirty .small { color: #f3cd7a; }
+
+/* ---------- Show page: quick Camera / Screen switch ---------- */
+.picsrc .small { margin: 0 0 4px; text-align: center; font-size: 11px; }
+.picsrc .seg { display: flex; width: 100%; } .picsrc .seg button { flex: 1; padding: 0 6px; font-size: 12px; }
+
+/* ---------- Lower Thirds tab: buttons on the left, the words on the right ---------- */
+.lowerwrap4 { grid-template-columns: minmax(260px, 1fr) minmax(260px, 1fr) minmax(260px, 1fr); }
+.lowerwrap4 .qgrid { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+.lowerwrap4 .cplay label.first { margin-top: 0; }
+.lowerwrap4 .row.nomt { margin-top: 0; }
+
+/* ---------- picking a window or monitor ---------- */
+.capgrid { display: grid; grid-template-columns: repeat(auto-fill, minmax(190px, 1fr)); gap: 10px; max-height: 52vh; overflow: auto; margin-top: 10px; }
+.captile { height: auto; padding: 6px; display: block; text-align: left; background: var(--raise); }
+.captile img, .captile .ph { display: block; width: 100%; aspect-ratio: 16 / 9; object-fit: contain; background: #000; border-radius: 6px; margin-bottom: 6px; }
+.captile span { display: block; font-size: 12px; font-weight: 600; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.dialog.wide { max-width: 860px; margin-top: 6vh; }
+
+
+/* ---------- drag to resize, and full view ---------- */
+.bible, .lowerwrap4 { position: relative; }
+.ztools { position: absolute; top: 10px; right: 10px; display: none; gap: 8px; line-height: normal; }
+#viewShow.zoomed .ztools { display: flex; }
+#viewShow.zoomed #dock, #viewShow.zoomed #rail { display: none; }
+#viewShow.zoomed #stage .col.hide { display: none; }
+#viewShow.zoomed #stage { flex: 1; min-height: 0; justify-content: center; }
+#viewShow:not(.zp).zoomed #zSend { display: none; }
+
+/* ----- Start stream box: plain, friendly checklist ----- */
+.sd-head { font-size: 15px; font-weight: 600; margin: 0 0 12px; padding: 10px 14px; border-radius: 10px; }
+.sd-head.ok { background: rgba(67,201,132,.12); color: #86d9a0; } .sd-head.wn { background: rgba(243,205,122,.12); color: #f3cd7a; } .sd-head.no { background: rgba(242,162,165,.12); color: #f2a2a5; }
+.sd-row { display: flex; gap: 12px; align-items: flex-start; padding: 9px 4px; border-bottom: 1px solid var(--line); }
+.sd-row:last-child { border-bottom: 0; }
+.sd-ic { flex: none; width: 24px; height: 24px; border-radius: 50%; display: grid; place-items: center; font-size: 13px; font-weight: 800; margin-top: 1px; }
+.sd-row.ok .sd-ic { background: rgba(67,201,132,.18); color: #86d9a0; } .sd-row.wn .sd-ic { background: rgba(243,205,122,.18); color: #f3cd7a; } .sd-row.no .sd-ic { background: rgba(242,162,165,.18); color: #f2a2a5; }
+.sd-tx b { display: block; font-size: 14px; font-weight: 600; color: var(--text); }
+.sd-tx small { display: block; color: var(--muted); font-size: 12px; margin-top: 2px; word-break: break-word; }
+
+/* ----- one red line in the top bar while streaming (like XSplit's title bar) ----- */
+.topleft { display: flex; align-items: center; gap: 18px; min-width: 0; }
+#liveStats { color: #ff3b3b; font-weight: 700; font-size: 13px; white-space: pre; overflow: hidden; text-overflow: ellipsis; min-width: 0; font-variant-numeric: tabular-nums; }
+#liveStats.trouble { color: #f2b441; }
+#liveStats[hidden] { display: none; }
+
+
+/* ---------- External page: small preview, with the photos and videos to pick from underneath ---------- */
+#viewTV.mediamode .pagemain { justify-content: flex-start; align-items: stretch; gap: 8px; padding: 14px 20px; overflow: auto; }
+#viewTV.mediamode .stagebox { max-width: min(440px, 100%); align-self: center; flex: none; }
+#viewTV.mediamode .pagenote { flex: none; }
+#viewTV.mediamode .tvshelf { display: flex; }
+.tvshelf { flex: 1 0 190px; min-height: 190px; display: none; flex-direction: column; background: var(--panel); border: 1px solid var(--line); border-radius: 12px; overflow: hidden; }
+.tvshelf .bhead { height: 34px; }
+.tvshelf .qinfo { max-width: 60%; }
+.tvtiles { grid-template-columns: repeat(auto-fill, minmax(130px, 1fr)); gap: 8px; padding: 8px; }
+.tvtiles .clip .cname { font-size: 12px; }
+.clip .onscr { display: none; position: absolute; top: 6px; left: 6px; padding: 2px 8px; border-radius: 999px; background: var(--accent); color: #fff; font-size: 11px; font-weight: 700; line-height: 1.4; }
+.clip.ison .onscr { display: block; }
+
+/* ---------- Live Stream tab: the Play box fits without scrolling ---------- */
+#paneMedia .cplay { padding: 10px 12px; overflow: hidden; }
+#paneMedia #cNow { margin-bottom: 6px; font-size: 14px; }
+#paneMedia .cplay .row { margin-top: 8px; gap: 6px; }
+#paneMedia .cplay .row button { height: 34px; padding: 0 12px; }
+#paneMedia .cplay .row button.wide { height: 36px; font-size: 15px; }
+#paneMedia #playVideo .tseg { margin-top: 0; }
+#paneMedia #playVideo .tseg button { height: 26px; }
+#paneMedia #playVideo .checks { margin-top: 6px; }
+#paneMedia #playVideo .checks label.check { margin: 4px 0 0; font-size: 13px; line-height: 1.25; }
+#paneMedia #playVideo .two { gap: 8px; margin-top: 4px; }
+#paneMedia #playVideo .two label { margin: 6px 0 3px; font-size: 10px; letter-spacing: .5px; }
+#paneMedia #playVideo .two select { height: 32px; padding: 0 8px; font-size: 13px; }
+#paneMedia #playPhoto .small { margin-top: 8px; }
+
+
+/* ---------- Web page ---------- */
+.webwrap { height: 100%; display: grid; grid-template-columns: minmax(0, 1.6fr) minmax(280px, 1fr); gap: 12px; }
+.webstage { flex: 1; min-height: 0; display: flex; align-items: center; justify-content: center; padding: 8px; background: #000; }
+#webCanvas { max-width: 100%; max-height: 100%; aspect-ratio: 16 / 9; background: #000; cursor: crosshair; outline: none; border-radius: 6px; }
+#webCanvas:focus-visible { box-shadow: 0 0 0 2px var(--accent); }
+#dispCanvas { outline: none; }
+#viewTV.webmode #dispCanvas { cursor: crosshair; }
+#tvWebBox { margin-top: 12px; }
+#tvWebBox .row { margin-top: 8px; }
+#paneWeb .cplay { overflow: auto; }
+#paneWeb .cplay label { margin: 10px 0 4px; }
+#paneWeb .cplay label.first { margin-top: 0; }
+#paneWeb .cplay .row { margin-top: 8px; }
+#paneWeb .cplay .row button { height: 34px; padding: 0 12px; }
+#paneWeb .cplay .row button.wide { height: 38px; }
+#paneWeb .cplay .small { margin-top: 10px; }
+
+
+/* ---------- Lower Thirds tab: two boxes, and the message box fits without scrolling ---------- */
+.lowerwrap4 { grid-template-columns: minmax(260px, 1fr) minmax(340px, 1.5fr); }
+.msgbox { overflow: hidden; padding: 10px 12px; }
+.msgbox .two { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; }
+.msgbox label.first { margin: 0 0 4px; font-size: 10px; letter-spacing: .5px; }
+.msgbox input[type=text] { height: 36px; }
+.msgbox .row { margin-top: 10px; flex-wrap: nowrap; }
+.msgbox .row select { flex: 1; height: 36px; }
+.msgbox .row button { height: 36px; flex: none; }
+.msgbox label.check { margin: 10px 0 0; font-size: 13px; }
+
+/* ---------- Web page tab ---------- */
+.webwrap { grid-template-columns: minmax(0, 1.4fr) minmax(0, 1fr); }
+#paneWeb .cplay .row input[type=text] { flex: 1; height: 36px; }
+#paneWeb .cplay .row .seg { flex: 1; }
+#paneWeb .cplay .row .seg button { flex: 1; }
+#paneWeb .cplay .row button.wide { flex: 1; }
+#paneWeb .cplay { overflow: hidden; }
+#liveCanvas { outline: none; }
+
+/* ---------- Settings: a plain list. Names on the left, the control on the right, a line between groups ---------- */
+.spages { padding: 28px 40px 48px; }
+.ptitle { font-size: 26px; margin: 0 0 6px; }
+.psub { margin: 0 0 22px; }
+.cards, .cards.one { display: flex; flex-direction: column; gap: 0; max-width: 900px; }
+.cards > .card { background: none; border: 0; border-radius: 0; box-shadow: none; padding: 24px 0 28px; border-bottom: 1px solid var(--line); }
+.cards > .card:first-child { padding-top: 8px; }
+.cards > .card:last-child { border-bottom: 0; }
+.cards :is(.card, #capBody) { display: grid; grid-template-columns: 240px minmax(0, 1fr); column-gap: 28px; row-gap: 12px; align-items: start; }
+.cards :is(.card, #capBody) > * { grid-column: 1 / -1; margin-top: 0; margin-bottom: 0; }
+.cards .card > h3 { font-size: 17px; font-weight: 650; color: var(--text); margin: 0 0 2px; }
+.cards :is(.card, #capBody) > label:not(.check) { grid-column: 1; display: flex; align-items: center; min-height: 40px; margin: 0; color: var(--text); font-size: 14px; font-weight: 500; text-transform: none; letter-spacing: 0; }
+.cards :is(.card, #capBody) > :is(input, select, textarea) { grid-column: 2; max-width: 460px; }
+.cards :is(.card, #capBody) > input[type=range] { align-self: center; }
+.cards :is(.card, #capBody) > label.check { margin: 0; }
+.cards :is(.card, #capBody) > .small { margin: 0; }
+.cards :is(.card, #capBody) > .status { margin: 0; }
+.cards :is(.card, #capBody) > .row { margin: 0; }
+.cards #capBody { grid-column: 1 / -1; }
+.cards .card .lvl { margin: 0; }
+.savebar { max-width: 900px; }
+
+
+/* ---------- Window layouts (Settings > Window layout). Standard needs no rules. ---------- */
+/* B: only the Output, with the stream buttons beside it */
+#viewShow.lay-b:not(.zoomed) { justify-content: center; }
+#viewShow.lay-b:not(.zoomed) #stage { flex: none; }
+#viewShow.lay-b:not(.zoomed) #colPrev, #viewShow.lay-b:not(.zoomed) #dock, #viewShow.lay-b:not(.zoomed) #btnGo, #viewShow.lay-b:not(.zoomed) #btnClear, #viewShow.lay-b:not(.zoomed) #picSrcBox { display: none; }
+#viewShow.lay-b:not(.zoomed) #colOut { order: 1; }
+#viewShow.lay-b:not(.zoomed) #rail { order: 2; border-right: 0; }
+/* C: Preview above the Output on the left, SEND between them, the tabs on the right */
+#viewShow.lay-c:not(.zoomed) { display: grid; grid-template-rows: auto auto auto 1fr; align-content: start; }
+#viewShow.lay-c:not(.zoomed) #stage { display: contents; }
+#viewShow.lay-c:not(.zoomed) #colPrev { grid-column: 1; grid-row: 1; background: var(--panel); }
+#viewShow.lay-c:not(.zoomed) #rail { grid-column: 1; grid-row: 2; overflow: visible; display: grid; grid-template-columns: 1.4fr 1fr 1fr; gap: 8px; padding: 10px 12px; border: 0; border-top: 1px solid var(--line); border-bottom: 1px solid var(--line); }
+#viewShow.lay-c:not(.zoomed) #colOut { grid-column: 1; grid-row: 3; background: var(--panel); }
+#viewShow.lay-c:not(.zoomed) #dock { grid-column: 2; grid-row: 1 / 5; border-top: 0; border-left: 1px solid var(--line2); min-width: 0; }
+#viewShow.lay-c:not(.zoomed) #btnGo, #viewShow.lay-c:not(.zoomed) #btnClear, #viewShow.lay-c:not(.zoomed) #btnDisplay { height: 52px; }
+#viewShow.lay-c:not(.zoomed) #btnDisplay span { font-size: 14px; letter-spacing: 1px; }
+#viewShow.lay-c:not(.zoomed) .spacer { display: none; }
+#viewShow.lay-c:not(.zoomed) .picsrc { grid-column: 1; grid-row: 2; }
+#viewShow.lay-c:not(.zoomed) #btnStream { grid-column: 2 / 4; grid-row: 2; height: 46px; align-self: end; }
+#viewShow.lay-c:not(.zoomed) #streamStatus { grid-column: 1 / -1; grid-row: 3; min-height: 0; }
+.layopts { display: grid; grid-template-columns: repeat(auto-fit, minmax(230px, 1fr)); gap: 16px; max-width: 900px; }
+.layopt { height: auto; display: block; text-align: left; padding: 14px; background: var(--raise); border-radius: 12px; white-space: normal; }
+.layopt svg { display: block; width: 100%; height: auto; margin-bottom: 10px; }
+.layopt svg rect { fill: var(--raise2); stroke: var(--line2); }
+.layopt b { display: block; font-size: 15px; margin-bottom: 4px; }
+.layopt small { display: block; color: var(--muted); font-weight: 400; font-size: 12.5px; line-height: 1.4; }
+.layopt.on { border-color: var(--accent); background: var(--accent-bg); }
+.layopt.on svg rect { stroke: var(--accent); }
+
+
+/* ---------- Stacked layout: the tabs are re-flowed for a tall panel (two rows) instead of being stretched ---------- */
+#viewShow.lay-c:not(.zoomed) .bible { grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); grid-template-rows: minmax(0, 1fr) minmax(0, 1fr); }
+#viewShow.lay-c:not(.zoomed) .content, #viewShow.lay-c:not(.zoomed) .content.qclosed { grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); grid-template-rows: minmax(0, 1.4fr) minmax(0, 1fr); }
+#viewShow.lay-c:not(.zoomed) .content > :first-child { grid-column: 1 / -1; }
+#viewShow.lay-c:not(.zoomed) .lowerwrap4, #viewShow.lay-c:not(.zoomed) .webwrap { grid-template-columns: minmax(0, 1fr); grid-template-rows: none; height: auto; align-content: start; }
+#viewShow.lay-c:not(.zoomed) .lowerwrap4 .qgrid { grid-template-columns: repeat(auto-fill, minmax(180px, 1fr)); }
+#tvTarget { display: none !important; }
+.ilabel .stepn { margin-right: 8px; }
+
+
+/* ---------- Layout B: the Output as big as it can be, the buttons in a slim bar under it ---------- */
+#viewShow.lay-b:not(.zoomed) #stage { grid-template-columns: 1fr; }
+#viewShow.lay-b:not(.zoomed) #rail { flex-direction: row; align-items: center; gap: 12px; padding: 8px 12px; border: 0; border-top: 1px solid var(--line); }
+#viewShow.lay-b:not(.zoomed) #rail button { width: auto; }
+#viewShow.lay-b:not(.zoomed) #btnDisplay { order: 1; height: 44px; padding: 0 26px; }
+#viewShow.lay-b:not(.zoomed) .spacer { display: block; order: 2; flex: 1; }
+#viewShow.lay-b:not(.zoomed) #streamStatus { order: 3; min-height: 0; }
+#viewShow.lay-b:not(.zoomed) #btnStream { order: 4; height: 44px; padding: 0 30px; }
+
+/* ---------- Settings: sections side by side so nothing is wasted; technical ones fold away ---------- */
+.spages { padding: 24px 32px 48px; }
+.cards, .cards.one { display: grid; grid-template-columns: repeat(auto-fit, minmax(460px, 1fr)); gap: 20px 24px; max-width: none; align-items: start; }
+.cards.one { max-width: 960px; grid-template-columns: minmax(0, 1fr); }
+.cards > .card { background: var(--panel); border: 1px solid var(--line); border-radius: 14px; padding: 18px 20px 20px; box-shadow: none; }
+.cards > .card:first-child { padding-top: 18px; }
+.cards > .card:last-child { border-bottom: 1px solid var(--line); }
+.cards :is(.card, #capBody) { grid-template-columns: 150px minmax(0, 1fr); column-gap: 16px; row-gap: 10px; }
+.cards .card > h3 { font-size: 16px; margin: 0 0 4px; }
+.cards .card.adv > h3 { cursor: pointer; display: flex; justify-content: space-between; align-items: center; margin: 0; }
+.cards .card.adv > h3::after { content: 'Show'; font-size: 12px; font-weight: 600; color: var(--muted); padding: 3px 10px; border: 1px solid var(--line2); border-radius: 999px; }
+.cards .card.adv.open > h3 { margin-bottom: 4px; }
+.cards .card.adv.open > h3::after { content: 'Hide'; }
+.cards .card.adv:not(.open) > :not(h3) { display: none !important; }
+.lookleft { position: sticky; top: 8px; align-self: start; }
+.keycols { display: grid; grid-template-columns: repeat(auto-fit, minmax(420px, 1fr)); gap: 20px 24px; max-width: 1100px; }
+.keycard { background: var(--panel); border: 1px solid var(--line); border-radius: 14px; padding: 16px 20px 8px; }
+.keycard h3 { font-size: 16px; margin: 0 0 8px; }
+.krow { display: grid; grid-template-columns: 170px 1fr; gap: 4px 14px; padding: 10px 0; border-top: 1px solid var(--line); align-items: baseline; }
+.krow b { font-weight: 600; }
+.krow i { grid-column: 2; font-style: normal; color: var(--muted); font-size: 12.5px; }
+.krow i:empty { display: none; }
+kbd { display: inline-block; min-width: 24px; padding: 2px 7px; text-align: center; font: 600 12px/1.5 inherit; background: var(--raise2); border: 1px solid var(--line2); border-bottom-width: 2px; border-radius: 6px; }
+.cards:not(.one) { display: block; columns: 2 440px; column-gap: 24px; }
+.cards:not(.one) > .card { break-inside: avoid; margin: 0 0 20px; }

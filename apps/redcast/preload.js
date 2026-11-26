@@ -1,13 +1,23 @@
 const { contextBridge, ipcRenderer } = require('electron');
 
-const ALLOWED_EVENTS = ['metrics', 'stream:ended', 'ffmpeg:log', 'tv:state', 'tv:closed', 'rtc:signal', 'media:changed'];
+const ALLOWED_EVENTS = ['metrics', 'stream:ended', 'ffmpeg:log', 'tv:state', 'tv:closed', 'rtc:signal', 'media:changed', 'web:frame', 'web:state'];
 
 contextBridge.exposeInMainWorld('api', {
+  captureSources: (light) => ipcRenderer.invoke('capture:sources', !!light),
+  captureSelect: (id) => ipcRenderer.invoke('capture:select', id),
+  bootProgress: (pct, text) => ipcRenderer.send('boot:progress', pct, text),
+  bootLoaded: () => ipcRenderer.send('boot:loaded'),
   listDisplays: () => ipcRenderer.invoke('displays:list'),
   openTv: (id) => ipcRenderer.invoke('tv:open', id),
   closeTv: (id) => ipcRenderer.invoke('tv:close', id),
   setTv: (id, state) => ipcRenderer.send('tv:set', id, state),
   rtcSignal: (a, b) => ipcRenderer.send('rtc:signal', b === undefined ? { msg: a } : { id: a, msg: b }), // from the operator: (screen id, message). From an external window: (message)
+  getLayout: () => ipcRenderer.invoke('layout:get'),
+  setLayout: (l) => ipcRenderer.invoke('layout:set', l),
+  webOpen: (url) => ipcRenderer.invoke('web:open', url),
+  webClose: () => ipcRenderer.invoke('web:close'),
+  webNav: (a) => ipcRenderer.send('web:nav', a),
+  webInput: (ev) => ipcRenderer.send('web:input', ev),
   checkFfmpeg: () => ipcRenderer.invoke('ffmpeg:check'),
   startStream: (opts) => ipcRenderer.invoke('stream:start', opts),
   sendChunk: (buf) => ipcRenderer.send('stream:chunk', buf),

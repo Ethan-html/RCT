@@ -43,6 +43,7 @@ DEFAULT_SETTINGS = {
     "pass": "",
     "sceneCount": 30,
     "pageZoom": 100,
+    "videoDevice": -1,      # -1 = snapshots from the IP camera; 0, 1, 2... = a camera input on this computer
     # END Stream: on/off switch + ordered list of hotkeys.
     # Each step presses `keys`, then waits `delay` seconds before the NEXT step.
     "endEnabled": True,
@@ -136,6 +137,7 @@ def normalize_settings(payload, existing):
         "pass": password,
         "sceneCount": clamp_int(payload.get("sceneCount"), 1, 50, 30),
         "pageZoom": clamp_int(payload.get("pageZoom"), 50, 200, 100),
+        "videoDevice": clamp_int(payload.get("videoDevice", existing.get("videoDevice", -1)), -1, 31, -1),
         "endEnabled": bool(payload.get("endEnabled", True)),
         "endSteps": clean_steps(payload.get("endSteps", [])),
     }
@@ -282,13 +284,24 @@ def recall_preset(preset_num: int):
         return jsonify({"status": "error", "message": str(exc)}), 400
 
 
+def device_snapshot():
+    """A picture from the camera input chosen in Settings (None = use the IP camera's snapshot)."""
+    try:
+        if int(get_settings().get("videoDevice", -1)) < 0:
+            return None
+        mod = sys.modules.get("tracker")
+        return mod.ENGINE.snapshot_jpeg() if mod is not None and mod.ENGINE is not None else None
+    except Exception:
+        return None
+
+
 @app.route("/api/presets/<int:preset_num>/save", methods=["POST"])
 def save_preset(preset_num: int):
     payload = request.get_json(silent=True) or {}
     name = str(payload.get("name", f"Preset {preset_num}")).strip() or f"Preset {preset_num}"
     try:
         camera_get(f"cgi-bin/ptzctrl.cgi?ptzcmd&posset&{preset_num}")
-        jpg = camera_get("snapshot.jpg", timeout=8)
+        jpg = device_snapshot() or camera_get("snapshot.jpg", timeout=8)
     except CAMERA_ERRORS as exc:
         return jsonify({"status": "error", "message": str(exc)}), 400
 
@@ -459,6 +472,16 @@ def endstream_cancel():
 def endstream_status():
     with _end_lock:
         return jsonify(dict(_end_state))
+
+
+# ---------------------------------------------------------------- motion tracking add-on
+try:
+    import tracker
+    tracker.init(app, resource_dir=RESOURCE_DIR, data_dir=DATA_DIR, camera_get=camera_get,
+                 get_settings=get_settings, load_json=load_json, save_json=save_json,
+                 camera_errors=CAMERA_ERRORS, settings_file=SETTINGS_FILE)
+except Exception as exc:  # the controller keeps working even if tracking can't load
+    logging.getLogger("ptz").warning("Motion tracking disabled: %s", exc)
 
 
 if __name__ == "__main__":

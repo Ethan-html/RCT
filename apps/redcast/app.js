@@ -22,7 +22,8 @@ function fmtTime(sec) {
 }
 function esc(s) { return String(s).replace(/[&<>"]/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c])); }
 
-function showModal(title, html, buttons) {
+function showModal(title, html, buttons, wide) {
+  document.querySelector('#modal .dialog').classList.toggle('wide', !!wide);
   $('mTitle').textContent = title;
   $('mBody').innerHTML = html;
   const box = $('mBtns');
@@ -39,7 +40,7 @@ function showModal(title, html, buttons) {
 function closeModal() { $('modal').hidden = true; }
 
 // ---------- saved settings ----------
-const SAVE_IDS = ['destMode', 'url', 'key', 'encoder', 'bitrate', 'fps', 'outMode', 'testClock', 'ytTitle', 'ytDesc', 'ytPrivacy', 'ytLatency', 'ytDvr', 'bibleFollow', 'endTv', 'endStream', 'cLoop', 'qAuto', 'vidAudio'];
+const SAVE_IDS = ['destMode', 'url', 'key', 'encoder', 'bitrate', 'fps', 'outMode', 'testClock', 'ytTitle', 'ytDesc', 'ytPrivacy', 'ytLatency', 'ytDvr', 'bibleFollow', 'endTv', 'endStream', 'cLoop', 'qAuto', 'capEnable'];
 function readStore(key, fallback) { try { return JSON.parse(localStorage.getItem(key)) ?? fallback; } catch (e) { return fallback; } }
 const saved = readStore('settings', {});
 SAVE_IDS.forEach((id) => {
@@ -51,11 +52,37 @@ function saveSettings() {
   const s = {};
   SAVE_IDS.forEach((id) => { const el = $(id); s[id] = el.type === 'checkbox' ? el.checked : el.value; });
   s.target = (typeof pb !== 'undefined') ? pb.target : 'stream';
-  s.cam = $('camSel').value; s.aud = $('audSel').value;
   localStorage.setItem('settings', JSON.stringify(s));
 }
 document.addEventListener('change', saveSettings);
 document.addEventListener('input', saveSettings);
+
+// Camera & sound settings: changes work right away, but they are only remembered after the Save button on that page.
+const CAM_DEFAULTS = { cam: saved.cam || '', aud: saved.aud === undefined ? '' : saved.aud, gain: 0, vidAudio: saved.vidAudio || 'video', vidSpeakers: false, spk: '', spkVol: 100, capSource: null, capFit: 'fit', cropLock: false, crop: { l: 0, t: 0, r: 0, b: 0 } };
+const camPrefs = Object.assign({}, CAM_DEFAULTS, readStore('camPrefs', {})); // what is saved
+const camDraft = JSON.parse(JSON.stringify(camPrefs));                       // what is on the page now
+const camKeys = Object.keys(CAM_DEFAULTS);
+const camDirty = () => camKeys.some((k) => JSON.stringify(camDraft[k]) !== JSON.stringify(camPrefs[k]));
+function writeCamPrefs() { try { localStorage.setItem('camPrefs', JSON.stringify(camPrefs)); } catch (e) { /* ignore */ } }
+function commitCamKey(k) { camPrefs[k] = JSON.parse(JSON.stringify(camDraft[k])); writeCamPrefs(); updateSaveBar(); } // for switches that are not on the Save page
+function updateSaveBar() {
+  const d = camDirty();
+  $('camSaveInfo').textContent = d ? 'You have changes that are not saved yet' : (updateSaveBar.justSaved ? 'Saved' : 'Nothing changed');
+  $('btnCamSave').closest('.savebar').classList.toggle('dirty', d);
+  $('btnCamSave').textContent = d ? 'Save changes' : 'Save';
+  if (d) updateSaveBar.justSaved = false;
+}
+function saveCam() {
+  camKeys.forEach((k) => { camPrefs[k] = JSON.parse(JSON.stringify(camDraft[k])); });
+  camPrefs.cam = $('camSel').value || camPrefs.cam; camPrefs.aud = $('audSel').value;
+  camDraft.cam = camPrefs.cam; camDraft.aud = camPrefs.aud;
+  writeCamPrefs();
+  updateSaveBar.justSaved = true; updateSaveBar();
+  const wasCam = camStream && camStream.getVideoTracks()[0] && camStream.getVideoTracks()[0].getSettings().deviceId;
+  const audNow = audioTrack ? (audioTrack.getSettings().deviceId || '') : '';
+  if (!camStream || wasCam !== camPrefs.cam || audNow !== camPrefs.aud) startCamera(); // a different camera or audio source: start it now
+  log('Camera & sound settings saved');
+}
 
 // ---------- camera and audio ----------
 let camStream = null, audioTrack = null;
@@ -68,19 +95,29 @@ function countCamFrame(now) {
 }
 
 async function refreshDevices() {
-  try { (await navigator.mediaDevices.getUserMedia({ video: true, audio: true })).getTracks().forEach((t) => t.stop()); }
-  catch (e) { log('Device permission probe: ' + e.message); }
-  const devs = await navigator.mediaDevices.enumerateDevices();
-  const cam = $('camSel'), aud = $('audSel');
-  cam.innerHTML = ''; aud.innerHTML = '';
+  let devs = await navigator.mediaDevices.enumerateDevices();
+  // The one-off permission probe opens the camera, which is slow with a capture card. It is only needed when the names are hidden.
+  if (!devs.some((d) => (d.kind === 'videoinput' || d.kind === 'audioinput') && d.label)) {
+    try { (await navigator.mediaDevices.getUserMedia({ video: true, audio: true })).getTracks().forEach((t) => t.stop()); }
+    catch (e) { log('Device permission probe: ' + e.message); }
+    devs = await navigator.mediaDevices.enumerateDevices();
+  }
+  const cam = $('camSel'), aud = $('audSel'), spk = $('spkSel');
+  cam.innerHTML = ''; aud.innerHTML = ''; spk.innerHTML = '';
   devs.filter((d) => d.kind === 'videoinput').forEach((d) => cam.add(new Option(d.label || 'Camera ' + (cam.length + 1), d.deviceId)));
   aud.add(new Option('(no audio)', ''));
   devs.filter((d) => d.kind === 'audioinput').forEach((d) => aud.add(new Option(d.label || 'Audio ' + aud.length, d.deviceId)));
-  if (saved.cam) cam.value = saved.cam;
-  if (saved.aud !== undefined) aud.value = saved.aud;
+  spk.add(new Option('Default speakers', ''));
+  devs.filter((d) => d.kind === 'audiooutput' && d.deviceId !== 'default' && d.deviceId !== 'communications').forEach((d) => spk.add(new Option(d.label || 'Speakers ' + spk.length, d.deviceId)));
+  if (camDraft.cam && [...cam.options].some((o) => o.value === camDraft.cam)) cam.value = camDraft.cam;
+  if ([...aud.options].some((o) => o.value === camDraft.aud)) aud.value = camDraft.aud;
+  if ([...spk.options].some((o) => o.value === camDraft.spk)) spk.value = camDraft.spk;
   log(`Found ${cam.length} camera(s) and ${aud.length - 1} audio input(s).`);
 }
 $('btnRefresh').onclick = refreshDevices;
+$('camSel').addEventListener('change', () => { camDraft.cam = $('camSel').value; updateSaveBar(); });
+$('audSel').addEventListener('change', () => { camDraft.aud = $('audSel').value; updateSaveBar(); });
+$('spkSel').addEventListener('change', () => { camDraft.spk = $('spkSel').value; applyMonitor(); updateSaveBar(); });
 
 function stopCamera() {
   if (camStream) camStream.getTracks().forEach((t) => t.stop());
@@ -90,7 +127,8 @@ function stopCamera() {
 async function startCamera() {
   stopCamera();
   const camId = $('camSel').value, audId = $('audSel').value, fps = Number($('fps').value);
-  if (!camId) { setStatus('camInfo', 'No camera found', 'bad'); return; }
+  camDraft.cam = camId; camDraft.aud = audId;
+  if (!camId) { setStatus('camInfo', 'No camera found', 'bad'); updateSaveBar(); return; }
   try {
     camStream = await navigator.mediaDevices.getUserMedia({
       video: { deviceId: { exact: camId }, width: { ideal: 1920 }, height: { ideal: 1080 }, frameRate: { ideal: fps } },
@@ -112,15 +150,17 @@ async function startCamera() {
   video.requestVideoFrameCallback(countCamFrame);
   setStatus('camInfo', `Camera OK: ${s.width}x${s.height} at ${Math.round(s.frameRate)} fps${audioTrack ? ', audio on' : ', no audio'}`, 'good');
   log('Camera started: ' + vt.label);
-  setupMeter();
   connectCamAudio();
+  updateSaveBar();
   onSceneChange();
 }
 $('btnCam').onclick = startCamera;
 
-let audioCtx = null, anL = null, anR = null, bufL = null, bufR = null;
-let audioDb = -100, silentSince = null, silentWarned = false;
+// ----- the sound mixer -----
+// Everything heard on the stream goes through one mixer: the microphone / mixer input (with its gain) plus any video playing to the Stream.
+// A video's sound for an external screen has its own output. Only the video's sound (never the microphone) can also go to this PC's speakers.
 let techActive = false, streamAudio = null;
+let audioDb = -100, silentSince = null, silentWarned = false;
 const effectiveMuted = () => techActive; // the only thing that cuts the audio is the Tech error screen
 function applyMute() {
   const m = effectiveMuted();
@@ -128,68 +168,272 @@ function applyMute() {
   $('btnTech').classList.toggle('active', techActive);
   $('btnTech').textContent = techActive ? 'END TECH ERROR' : 'TECH ERROR';
 }
-// Everything heard on the stream goes through one mixer: the camera/mixer audio plus any video playing to the Stream.
-// Video sound for the TV goes to its own output. Nothing here plays through this PC's speakers.
 let mx = null, camSrcNode = null;
+function mkTap(ctx, node) { // two level readers (left, right) on a point in the mixer
+  const sp = ctx.createChannelSplitter(2), L = ctx.createAnalyser(), R = ctx.createAnalyser();
+  L.fftSize = 4096; R.fftSize = 4096;
+  node.connect(sp); sp.connect(L, 0); sp.connect(R, 1);
+  return { L, R, bL: new Float32Array(4096), bR: new Float32Array(4096) };
+}
+function tapPeaks(t) { // the loudest sample in each channel since the last look, in dB
+  const pk = (an, buf) => { an.getFloatTimeDomainData(buf); let m = 0; for (let i = 0; i < buf.length; i++) { const v = buf[i] < 0 ? -buf[i] : buf[i]; if (v > m) m = v; } return sampleDb(m); };
+  const l = pk(t.L, t.bL); let r = pk(t.R, t.bR);
+  if (r < -90 && l > -80) r = l; // a mono source only fills the left channel
+  return [l, r];
+}
+function softClipCurve() { // identity up to -2 dB, then it rounds off instead of clipping hard
+  const n = 4096, c = new Float32Array(n);
+  for (let i = 0; i < n; i++) { const x = i / (n - 1) * 2 - 1, a = Math.abs(x); c[i] = a < 0.8 ? x : Math.sign(x) * (0.8 + 0.2 * Math.tanh((a - 0.8) / 0.2)); }
+  return c;
+}
 function ensureMixer() {
   if (mx) return mx;
   const ctx = new AudioContext();
-  const o = { ctx };
+  const o = { ctx, sink: '' };
   o.streamDest = ctx.createMediaStreamDestination();
   o.master = ctx.createGain(); o.master.connect(o.streamDest);
-  o.cam = ctx.createGain(); o.cam.connect(o.master);
+  o.inGain = ctx.createGain(); o.inGain.gain.value = dbToGain(camDraft.gain); // input volume
+  o.clip = ctx.createWaveShaper(); o.clip.curve = softClipCurve();            // a high gain rounds off at the top instead of crackling
+  o.cam = ctx.createGain(); o.inGain.connect(o.clip); o.clip.connect(o.cam); o.cam.connect(o.master);
+  o.inTap = mkTap(ctx, o.clip);                                                // what the microphone meter shows (after the gain)
   o.vidStream = ctx.createGain(); o.vidStream.gain.value = 0; o.vidStream.connect(o.master);
   o.tvDest = ctx.createMediaStreamDestination();
   o.vidTv = ctx.createGain(); o.vidTv.gain.value = 0; o.vidTv.connect(o.tvDest);
-  o.bus = ctx.createGain(); o.bus.connect(o.vidStream); o.bus.connect(o.vidTv);
+  o.mon = ctx.createGain(); o.mon.gain.value = 0; o.mon.connect(ctx.destination); // this PC's speakers
+  o.bus = ctx.createGain(); o.bus.connect(o.vidStream); o.bus.connect(o.vidTv); o.bus.connect(o.mon);
+  o.outTap = mkTap(ctx, o.master);                                             // what the Output meter shows: the real mix that is streamed
   players.forEach((p) => { p.node = ctx.createMediaElementSource(p.el); p.node.connect(o.bus); });
   mx = o;
   ctx.resume().catch(() => {});
-  applyMute();
+  applyMute(); applyMonitor();
   return o;
 }
 function connectCamAudio() {
   const m = ensureMixer();
   if (camSrcNode) { try { camSrcNode.disconnect(); } catch (e) { /* ignore */ } camSrcNode = null; }
-  if (audioTrack) { camSrcNode = m.ctx.createMediaStreamSource(new MediaStream([audioTrack])); camSrcNode.connect(m.cam); }
+  if (audioTrack) { camSrcNode = m.ctx.createMediaStreamSource(new MediaStream([audioTrack])); camSrcNode.connect(m.inGain); }
 }
-function setupMeter() {
-  if (audioCtx) { audioCtx.close(); audioCtx = null; anL = anR = null; }
-  if (!audioTrack) { $('meterDb').textContent = 'Audio level: no audio source'; return; }
-  audioCtx = new AudioContext();
-  const src = audioCtx.createMediaStreamSource(new MediaStream([audioTrack]));
-  const split = audioCtx.createChannelSplitter(2);
-  anL = audioCtx.createAnalyser(); anR = audioCtx.createAnalyser();
-  anL.fftSize = 1024; anR.fftSize = 1024;
-  bufL = new Float32Array(1024); bufR = new Float32Array(1024);
-  src.connect(split); split.connect(anL, 0); split.connect(anR, 1); // deliberately not connected to speakers
+function applyGain() { if (mx) mx.inGain.gain.setTargetAtTime(dbToGain(camDraft.gain), mx.ctx.currentTime, 0.02); }
+function applyMonitor() {
+  $('vidSpeakers').checked = !!camDraft.vidSpeakers; $('vidSpeakersQuick').checked = !!camDraft.vidSpeakers;
+  $('spkVol').value = camDraft.spkVol; $('spkVolVal').textContent = camDraft.spkVol + '%';
+  if (!mx) return;
+  mx.mon.gain.value = camDraft.vidSpeakers ? camDraft.spkVol / 100 : 0;
+  const want = camDraft.spk || '';
+  if (mx.sink !== want && mx.ctx.setSinkId) { mx.sink = want; mx.ctx.setSinkId(want).catch((e) => log('Could not use that speaker output: ' + e.message)); }
 }
-function levelDb(an, buf) {
-  an.getFloatTimeDomainData(buf);
-  let sum = 0;
-  for (let i = 0; i < buf.length; i++) sum += buf[i] * buf[i];
-  const rms = Math.sqrt(sum / buf.length);
-  return rms > 0 ? Math.max(-100, 20 * Math.log10(rms)) : -100;
+$('vidSpeakers').onchange = () => { camDraft.vidSpeakers = $('vidSpeakers').checked; applyMonitor(); updateSaveBar(); };
+$('vidSpeakersQuick').onchange = () => { camDraft.vidSpeakers = $('vidSpeakersQuick').checked; commitCamKey('vidSpeakers'); applyMonitor(); }; // a live switch on the Show page: remembered at once
+$('spkVol').oninput = () => { camDraft.spkVol = Number($('spkVol').value); applyMonitor(); updateSaveBar(); };
+
+// ----- input volume (gain) and the smart set -----
+function setGain(db) {
+  db = Math.max(-20, Math.min(30, Math.round(db * 2) / 2));
+  camDraft.gain = db; $('gainRange').value = db;
+  $('gainVal').textContent = (db > 0 ? '+' : '') + db + ' dB';
+  applyGain(); updateSaveBar();
 }
-function drawMeter(id, db) {
-  const pct = Math.max(0, Math.min(100, (db + 60) / 60 * 100));
-  $(id).style.clipPath = `inset(0 ${100 - pct}% 0 0)`;
+$('gainRange').oninput = () => setGain(Number($('gainRange').value));
+$('btnGainReset').onclick = () => setGain(0);
+let smart = null;
+function smartFinish() {
+  const r = computeSmartGain(smart.samples);
+  smart = null; $('btnSmart').disabled = false; $('btnSmart').textContent = 'Smart set (listen 8 seconds)';
+  if (!r.ok) { $('smartInfo').textContent = 'I did not hear enough speech. Ask the speaker to talk at their normal volume for the whole 8 seconds, then try again.'; return; }
+  setGain(r.gain);
+  $('smartInfo').textContent = `Done: the gain is now ${r.gain > 0 ? '+' : ''}${r.gain} dB. The loud parts of speech now reach about ${Math.round(r.loud + r.gain)} dB, near the top of the yellow. It stays at this value. Press Save to keep it.`;
+  log('Smart gain: ' + r.gain + ' dB');
 }
-setInterval(() => {
-  if (!anL) { audioDb = -100; drawMeter('mL', -100); drawMeter('mR', -100); return; }
-  const l = levelDb(anL, bufL);
-  let r = levelDb(anR, bufR);
-  if (r < -90 && l > -80) r = l; // a mono source only fills the left channel
-  audioDb = Math.max(l, r);
+$('btnSmart').onclick = () => {
+  if (smart) return;
+  if (!audioTrack || !mx) { $('smartInfo').textContent = 'Start the camera with an audio source first.'; return; }
+  smart = { start: performance.now(), samples: [] };
+  $('btnSmart').disabled = true; $('smartInfo').textContent = 'Listening... ask the speaker to talk normally.';
+};
+
+// ----- the meters -----
+const lv = { inL: -100, inPk: -100, inPkT: 0, l: -100, r: -100, pkL: -100, pkR: -100, pkLT: 0, pkRT: 0 };
+const DECAY_DB = 0.71; // falls about 20 dB in 1.7 seconds, like a broadcast meter
+const fall = (shown, now) => (now >= shown ? now : Math.max(now, shown - DECAY_DB));
+function paintBar(fillEl, pkEl, level, peak) {
+  fillEl.style.clipPath = `inset(0 ${100 - meterPct(level)}% 0 0)`;
+  pkEl.style.left = `calc(${meterPct(peak)}% - 1px)`; pkEl.style.opacity = peak > -58 ? '.9' : '0';
+}
+const holdPeak = (peak, t0, now, nowMs) => (now >= peak || nowMs - t0 > 1800 ? [now, nowMs] : [peak, t0]);
+function meterTick() {
+  const nowMs = performance.now();
+  if (!mx) { $('meterDb').textContent = 'Audio level: start the camera to see it'; return; }
+  const [il, ir] = tapPeaks(mx.inTap), inNow = Math.max(il, ir);
+  audioDb = inNow;
+  lv.inL = fall(lv.inL, inNow); [lv.inPk, lv.inPkT] = holdPeak(lv.inPk, lv.inPkT, inNow, nowMs);
+  const [ol, or] = tapPeaks(mx.outTap);
+  lv.l = fall(lv.l, ol); lv.r = fall(lv.r, or);
+  [lv.pkL, lv.pkLT] = holdPeak(lv.pkL, lv.pkLT, ol, nowMs); [lv.pkR, lv.pkRT] = holdPeak(lv.pkR, lv.pkRT, or, nowMs);
+  paintBar($('mL'), $('pkL'), lv.l, lv.pkL); paintBar($('mR'), $('pkR'), lv.r, lv.pkR);
+  if (view === 'Settings' && settingsPage === 'cam') {
+    paintBar($('meterBar'), $('meterPk'), lv.inL, lv.inPk);
+    const zone = lv.inL > METER.red ? 'too loud' : lv.inL > METER.yellow ? 'good' : lv.inL > -50 ? 'low' : 'very quiet';
+    $('meterDb').textContent = audioTrack ? `Audio level: ${Math.round(lv.inL)} dB (${zone})` : 'Audio level: no audio source';
+  }
+  if (smart) {
+    smart.samples.push(inNow - camDraft.gain); // measured as if the gain were 0 dB
+    const left = 8 - (nowMs - smart.start) / 1000;
+    $('btnSmart').textContent = left > 0 ? `Listening... ${Math.ceil(left)}` : 'Working...';
+    if (left <= 0) smartFinish();
+  }
   const m = effectiveMuted();
-  drawMeter('mL', m ? -100 : l); drawMeter('mR', m ? -100 : r);
-  $('meterBar').style.width = Math.max(0, Math.min(100, (audioDb + 60) / 60 * 100)) + '%';
-  $('meterDb').textContent = `Audio level: ${audioDb.toFixed(0)} dB`;
-  if (streaming && !m && audioDb < -75) {
+  if (streaming && !m && inNow < -75) {
     if (!silentSince) silentSince = Date.now();
-    else if (Date.now() - silentSince > 15000 && !silentWarned) { silentWarned = true; banner('No audio for 15 seconds - check the audio source.'); }
+    else if (Date.now() - silentSince > 15000 && !silentWarned && audioTrack) { silentWarned = true; banner('No audio for 15 seconds - check the audio source.'); }
   } else { silentSince = null; silentWarned = false; }
-}, 60);
+}
+setInterval(meterTick, 60);
+
+
+// ----- screen capture: a window or a whole monitor as the main picture, with a crop -----
+let capStream = null;
+function updateCapUI() {
+  const cs = camDraft.capSource, on = screenCap.ready;
+  setStatus('capInfo', on ? `Showing: ${screenCap.name}` : cs ? `Not running. Last used: ${cs.name}. Press Choose to start it again.` : 'No screen or window chosen', on ? 'good' : cs ? 'warn' : '');
+  $('btnCapStop').disabled = !on; $('btnCapPreview').disabled = !on;
+}
+function stopScreenCapture() {
+  if (capStream) capStream.getTracks().forEach((t) => t.stop());
+  capStream = null; screenVideo.srcObject = null; screenCap.ready = false;
+  updateCapUI(); onSceneChange();
+}
+async function startScreenCapture(src) {
+  if (capStream) { capStream.getTracks().forEach((t) => t.stop()); capStream = null; screenCap.ready = false; }
+  const fps = Number($('fps').value) || 30;
+  try {
+    capStream = await navigator.mediaDevices.getUserMedia({ audio: false, video: { mandatory: { chromeMediaSource: 'desktop', chromeMediaSourceId: src.id, maxWidth: 3840, maxHeight: 2160, maxFrameRate: fps } } });
+  } catch (e) {
+    try { await window.api.captureSelect(src.id); capStream = await navigator.mediaDevices.getDisplayMedia({ video: { frameRate: fps }, audio: false }); }
+    catch (e2) { setStatus('capInfo', 'Could not capture that: ' + e2.message, 'bad'); banner('Could not capture that window or monitor: ' + e2.message); return false; }
+  }
+  screenVideo.srcObject = capStream;
+  try { await screenVideo.play(); } catch (e) { /* the first frame arrives anyway */ }
+  capStream.getVideoTracks()[0].onended = () => { screenCap.ready = false; updateCapUI(); banner('The captured window was closed or stopped. Choose it again in Settings > Camera & sound.'); };
+  screenCap.ready = true; screenCap.name = src.name;
+  camDraft.capSource = { kind: src.kind, name: src.name, displayId: src.displayId || '' };
+  log('Screen capture started: ' + src.name);
+  updateCapUI(); updateSaveBar(); onSceneChange();
+  return true;
+}
+async function restoreCapture() {
+  if (!$('capEnable').checked) return; // reconnects to the window or monitor that was saved (a window is found again by its title)
+  const cs = camPrefs.capSource;
+  if (!cs || screenCap.ready) return;
+  try {
+    const list = await window.api.captureSources(true);
+    const hit = list.find((x) => x.kind === cs.kind && (cs.kind === 'screen' ? !!cs.displayId && String(x.displayId) === String(cs.displayId) : x.name === cs.name));
+    if (hit) await startScreenCapture(hit); else updateCapUI();
+  } catch (e) { log('Screen capture: ' + e.message); }
+}
+async function chooseCapture() {
+  let list = [];
+  try { list = await window.api.captureSources(false); } catch (e) { banner('Could not list the screens and windows: ' + e.message); return; }
+  const cs = camDraft.capSource; let kind = cs && cs.kind === 'window' ? 'window' : 'screen';
+  showModal('Choose what to show', '<div class="seg" id="capTabs"><button data-k="screen">Monitors</button><button data-k="window">Windows</button></div><div id="capGrid" class="capgrid"></div><div class="small">Redcast\'s own windows are not listed. A minimised window shows as a blank picture until it is opened again.</div>',
+    [{ label: 'Refresh', onClick: chooseCapture }, { label: 'Cancel', cls: 'ghost' }], true);
+  const draw = () => {
+    document.querySelectorAll('#capTabs button').forEach((b) => b.classList.toggle('on', b.dataset.k === kind));
+    const grid = $('capGrid'); grid.innerHTML = '';
+    const items = list.filter((x) => x.kind === kind);
+    if (!items.length) { grid.innerHTML = '<div class="msg">Nothing to show here.</div>'; return; }
+    items.forEach((src) => {
+      const b = mk('button', 'captile', `${src.thumb ? `<img src="${src.thumb}" alt="">` : '<div class="ph"></div>'}<span title="${esc(src.name)}">${esc(src.name)}</span>`);
+      b.onclick = () => { closeModal(); startScreenCapture(src); };
+      grid.appendChild(b);
+    });
+  };
+  document.querySelectorAll('#capTabs button').forEach((b) => { b.onclick = () => { kind = b.dataset.k; draw(); }; });
+  draw();
+}
+$('btnCapChoose').onclick = chooseCapture;
+$('btnCapStop').onclick = stopScreenCapture;
+$('btnCapPreview').onclick = () => pickPicture('screen');
+// Settings > Camera & sound > Screen capture on/off. Off = no capture, its settings are hidden and the Camera / Screen switch on the Show page is gone.
+function applyCapEnabled(first) {
+  const on = $('capEnable').checked;
+  $('capBody').hidden = !on; $('capOffNote').hidden = on; $('picSrcBox').hidden = !on;
+  if (on) { if (!first) restoreCapture(); return; }
+  stopScreenCapture();
+  const pb = preview.items.find((i) => isBase(i.type));
+  if (pb && pb.type === 'screen') setPreviewBase('camera');
+  const lb = typeof liveBase === 'function' ? liveBase() : null;
+  if (lb && lb.type === 'screen') setLiveBase('camera', null, true, true);
+}
+$('capEnable').addEventListener('change', () => { applyCapEnabled(false); try { saveSettings(); } catch (e) { /* ignore */ } });
+async function pickPicture(type) { // puts the camera or the screen in Preview (SEND then puts it on the Output)
+  if (type === 'screen' && !screenCap.ready) {
+    await restoreCapture();
+    if (!screenCap.ready) {
+      showModal('Choose a screen first', '<p>Pick the window or monitor to show first.</p>', [{ label: 'Cancel', cls: 'ghost' }, { label: 'Choose...', cls: 'primary', onClick: () => { openSettings('cam'); chooseCapture(); } }]);
+      return;
+    }
+  }
+  setPreviewBase(type);
+  log('Preview picture: ' + (type === 'screen' ? 'screen' : 'camera'));
+}
+document.querySelectorAll('#picSeg button').forEach((b) => { b.onclick = () => pickPicture(b.dataset.p); });
+function syncPicSeg() {
+  const pbase = preview.items.find((i) => isBase(i.type));
+  document.querySelectorAll('#picSeg button').forEach((b) => b.classList.toggle('on', !!pbase && b.dataset.p === pbase.type));
+}
+$('capFit').onchange = () => { camDraft.capFit = $('capFit').value; screenCap.fit = camDraft.capFit; updateSaveBar(); };
+
+// the crop box editor
+const cropCv = $('cropCanvas'), cctx = cropCv.getContext('2d');
+let cropDrag = null;
+function cropFrame() { // where the whole captured picture sits inside the editor
+  const vw = screenVideo.videoWidth || 16, vh = screenVideo.videoHeight || 9;
+  const k = Math.min(cropCv.width / vw, cropCv.height / vh), w = vw * k, h = vh * k;
+  return { x: (cropCv.width - w) / 2, y: (cropCv.height - h) / 2, w, h, vw, vh };
+}
+function cropPoint(e, f) {
+  const r = cropCv.getBoundingClientRect();
+  return { x: ((e.clientX - r.left) * cropCv.width / r.width - f.x) / f.w, y: ((e.clientY - r.top) * cropCv.height / r.height - f.y) / f.h };
+}
+function setCrop(c) { camDraft.crop = cropNorm(c); screenCap.crop = camDraft.crop; updateSaveBar(); }
+function drawCropEditor() {
+  const f = cropFrame(), c = camDraft.crop;
+  cctx.fillStyle = '#000'; cctx.fillRect(0, 0, cropCv.width, cropCv.height);
+  if (!screenCap.ready || screenVideo.readyState < 2) {
+    cctx.fillStyle = '#777'; cctx.textAlign = 'center'; cctx.font = '20px "Segoe UI", Arial'; cctx.fillText('Choose a window or monitor to set the crop', cropCv.width / 2, cropCv.height / 2); cctx.textAlign = 'left';
+    return;
+  }
+  cctx.drawImage(screenVideo, f.x, f.y, f.w, f.h);
+  const bx = f.x + c.l * f.w, by = f.y + c.t * f.h, bw = f.w * (1 - c.l - c.r), bh = f.h * (1 - c.t - c.b);
+  cctx.fillStyle = 'rgba(0,0,0,.62)';
+  cctx.fillRect(f.x, f.y, f.w, by - f.y); cctx.fillRect(f.x, by + bh, f.w, f.y + f.h - by - bh);
+  cctx.fillRect(f.x, by, bx - f.x, bh); cctx.fillRect(bx + bw, by, f.x + f.w - bx - bw, bh);
+  cctx.strokeStyle = '#f5b800'; cctx.lineWidth = 2; cctx.strokeRect(bx, by, bw, bh);
+  cctx.fillStyle = '#f5b800';
+  [[bx, by], [bx + bw / 2, by], [bx + bw, by], [bx, by + bh / 2], [bx + bw, by + bh / 2], [bx, by + bh], [bx + bw / 2, by + bh], [bx + bw, by + bh]].forEach(([x, y]) => cctx.fillRect(x - 5, y - 5, 10, 10));
+}
+const CROP_CURSOR = { n: 'ns-resize', s: 'ns-resize', e: 'ew-resize', w: 'ew-resize', ne: 'nesw-resize', sw: 'nesw-resize', nw: 'nwse-resize', se: 'nwse-resize', move: 'move' };
+cropCv.addEventListener('pointerdown', (e) => {
+  if (!screenCap.ready) return;
+  const f = cropFrame(), p = cropPoint(e, f), hit = cropHit(camDraft.crop, p.x, p.y, 14 / Math.min(f.w, f.h));
+  if (!hit) return;
+  cropDrag = { hit, start: p, crop: Object.assign({}, camDraft.crop) };
+  cropCv.setPointerCapture(e.pointerId); e.preventDefault();
+});
+cropCv.addEventListener('pointermove', (e) => {
+  const f = cropFrame(), p = cropPoint(e, f);
+  if (!cropDrag) { const h = screenCap.ready ? cropHit(camDraft.crop, p.x, p.y, 14 / Math.min(f.w, f.h)) : null; cropCv.style.cursor = h ? CROP_CURSOR[h] : 'default'; return; }
+  if (cropDrag.hit === 'move') setCrop(cropMove(cropDrag.crop, p.x - cropDrag.start.x, p.y - cropDrag.start.y));
+  else setCrop(cropResize(camDraft.crop, cropDrag.hit, p.x, p.y, f.vw, f.vh, $('cropLock').checked));
+});
+const endCropDrag = () => { cropDrag = null; };
+cropCv.addEventListener('pointerup', endCropDrag); cropCv.addEventListener('pointercancel', endCropDrag);
+$('btnCropReset').onclick = () => setCrop({ l: 0, t: 0, r: 0, b: 0 });
+$('cropLock').onchange = () => {
+  camDraft.cropLock = $('cropLock').checked;
+  if (camDraft.cropLock) { const f = cropFrame(), c = camDraft.crop; setCrop(cropResize(c, 'se', 1 - c.r, 1 - c.b, f.vw, f.vh, true)); } // snap the box to 16:9
+  else updateSaveBar();
+};
 
 // ---------- Bible: books > chapters > verses ----------
 const BOOKS = [
@@ -375,7 +619,7 @@ $('btnVerseSave').onclick = () => {
 let dockTab = '';
 function setDock(tab) {
   dockTab = tab;
-  ['Bible', 'Media', 'Lower'].forEach((t) => { $('pane' + t).hidden = dockTab !== t; });
+  ['Bible', 'Media', 'Lower', 'Web'].forEach((t) => { $('pane' + t).hidden = dockTab !== t; });
   document.querySelectorAll('#dockTabs button').forEach((b) => b.classList.toggle('on', b.dataset.tab === dockTab));
   if (dockTab === 'Lower') $('msgA').focus();
 }
@@ -411,19 +655,80 @@ document.querySelectorAll('#dockTabs button').forEach((b) => { b.onclick = () =>
 
 // ---------- fill the window: size the two pictures to the space they have ----------
 const RAIL_MIN = 220, STRIP = 44, TABS = 45, PANEL_MIN = 240;
+const SPLIT_H = 0;      // no drag bar any more: the boxes size themselves to the window
+let zoomed = null; // 'preview' | 'live' | null: one box filling the whole Show page
+let layout = readStore('layout', 'A'); // A standard, B livestream only, C stacked
+if (!['A', 'B', 'C'].includes(layout)) layout = 'A';
+const colPreview = previewCanvas.closest('.col'), colLive = liveCanvas.closest('.col');
 function fitAll() {
   const st = $('stage');
   const mw = document.documentElement.clientWidth, mh = $('viewShow').clientHeight;
   if (mw <= 0 || mh <= 0) return;
+  if (zoomed) { // one box fills the page
+    let w = mw, h = Math.round(w * 9 / 16);
+    if (h > mh - STRIP) { h = Math.max(100, mh - STRIP); w = Math.floor(h * 16 / 9); }
+    st.style.gridTemplateColumns = w + 'px'; st.style.height = '';
+    const c = zoomed === 'preview' ? previewCanvas : liveCanvas;
+    [previewCanvas, liveCanvas].forEach((cv) => { cv.style.width = w + 'px'; cv.style.height = h + 'px'; });
+    c.style.width = w + 'px';
+    return;
+  }
+  const vs = $('viewShow');
+  vs.style.gridTemplateColumns = '';
+  if (layout === 'B') { // the Output as big as the window allows, with a slim bar of buttons under it
+    const barH = ($('rail').scrollHeight || 60) + 2;
+    let bh = Math.max(120, Math.floor(mh - STRIP - barH)), bw = Math.floor(bh * 16 / 9);
+    if (bw > mw) { bw = mw; bh = Math.round(bw * 9 / 16); }
+    st.style.gridTemplateColumns = `${bw}px`; st.style.justifyContent = 'center'; st.style.height = '';
+    [previewCanvas, liveCanvas].forEach((c) => { c.style.width = bw + 'px'; c.style.height = bh + 'px'; });
+    return;
+  }
+  if (layout === 'C') { // Preview over Output on the left, SEND between them, the tabs on the right
+    const railH = ($('rail').scrollHeight || 150) + 4; // its natural height, not the squeezed one
+    let ch = Math.floor((mh - railH - 2 * STRIP) / 2), cw = Math.floor(ch * 16 / 9);
+    const maxW = Math.floor(mw * 0.5);
+    if (cw > maxW) cw = maxW;
+    if (cw < 320) cw = 320;
+    ch = Math.round(cw * 9 / 16);
+    vs.style.gridTemplateColumns = `${cw}px minmax(0, 1fr)`; st.style.height = '';
+    [previewCanvas, liveCanvas].forEach((c) => { c.style.width = cw + 'px'; c.style.height = ch + 'px'; });
+    return;
+  }
   let w = Math.floor((mw - RAIL_MIN) / 2);
   let h = Math.round(w * 9 / 16);
-  const maxStage = mh - TABS - PANEL_MIN;
+  const maxStage = mh - TABS - PANEL_MIN - SPLIT_H;
   if (h + STRIP > maxStage) { h = Math.max(160, maxStage - STRIP); w = Math.floor(h * 16 / 9); }
   st.style.gridTemplateColumns = `${w}px 1fr ${w}px`;
+  st.style.justifyContent = '';
   st.style.height = (h + STRIP) + 'px';
   [previewCanvas, liveCanvas].forEach((c) => { c.style.width = w + 'px'; c.style.height = h + 'px'; });
 }
 window.addEventListener('resize', fitAll);
+// ----- double-click a box to see it full size; double-click again (or Esc) to go back -----
+function setZoom(which) {
+  zoomed = which;
+  const v = $('viewShow');
+  v.classList.toggle('zoomed', !!which); v.classList.toggle('zp', which === 'preview');
+  colPreview.classList.toggle('hide', which === 'live'); colLive.classList.toggle('hide', which === 'preview');
+  fitAll();
+}
+previewCanvas.addEventListener('dblclick', () => { if (!zoomed && preview.sel) return; setZoom(zoomed ? null : 'preview'); }); // double-clicking a box in Preview (a photo, a lower third) is not a zoom
+liveCanvas.addEventListener('dblclick', () => { if (layout === 'B' && !zoomed) return; setZoom(zoomed ? null : 'live'); });
+function setLayout(l, noSave) {
+  layout = ['A', 'B', 'C'].includes(l) ? l : 'A';
+  const v = $('viewShow');
+  v.classList.remove('lay-a', 'lay-b', 'lay-c'); v.classList.add('lay-' + layout.toLowerCase());
+  if (zoomed) setZoom(null);
+  if (!noSave) { try { localStorage.setItem('layout', JSON.stringify(layout)); } catch (e) { /* ignore */ } try { window.api.setLayout(layout); } catch (e) { /* ignore */ } }
+  document.querySelectorAll('.layopt').forEach((b) => b.classList.toggle('on', b.dataset.lay === layout));
+  fitAll();
+}
+document.querySelectorAll('.layopt').forEach((b) => { b.onclick = () => setLayout(b.dataset.lay); });
+document.querySelectorAll('.card.adv > h3').forEach((h) => { h.onclick = () => h.parentElement.classList.toggle('open'); }); // technical cards stay folded until asked for
+document.querySelectorAll('.zExit').forEach((b) => { b.onclick = () => setZoom(null); });
+$('zSend').onclick = () => $('btnGo').click();
+document.addEventListener('keydown', (e) => { if (e.key === 'Escape' && zoomed && $('modal').hidden) setZoom(null); });
+
 
 $('btnUndo').onclick = undo;
 $('btnRedo').onclick = redo;
@@ -466,9 +771,11 @@ document.addEventListener('keydown', (e) => {
 
 function describe(it) {
   if (it.type === 'camera') return 'Camera';
+  if (it.type === 'screen') return 'Screen' + (screenCap.name ? ': ' + screenCap.name : '');
   if (it.type === 'tech') return 'Tech Difficulties screen';
   if (it.type === 'photo') { const c = clipById(it.clipId); return 'Photo: ' + (c ? c.name : ''); }
   if (it.type === 'media') { const c = clipById(it.clipId); return 'Video: ' + (c ? c.name : ''); }
+  if (it.type === 'web') return 'Web page' + (web.title ? ': ' + web.title : '');
   if (it.type === 'verse') return 'Verse: ' + (it.ref || '');
   if (it.type === 'card') return (SLOT_NAMES[it.slot] || 'Card') + (it.a ? ': ' + it.a : '');
   return 'Name: ' + (it.name || '');
@@ -476,15 +783,17 @@ function describe(it) {
 function refreshMainUI() {
   const differs = previewDiffers(), clears = sendWouldClear();
   $('btnGo').classList.toggle('ready', differs || clears);
-  $('btnGo').querySelector('small').textContent = clears ? 'Blank Preview clears the lower third' : 'Preview to Output';
+  $('btnGo').querySelector('small').textContent = clears ? 'Blank Preview clears the lower third and photo' : 'Preview to Output';
   previewCanvas.classList.toggle('pending', differs);
   $('btnUndo').disabled = !canUndo();
   $('btnRedo').disabled = !canRedo();
   const sel = selected();
   $('btnRemoveSel').disabled = !sel || isBase(sel.type);
-  $('hint').textContent = !videoReady ? 'The camera is not running. Open Settings to choose the camera.'
+  syncPicSeg();
+  const pbs = preview.items.find((i) => isBase(i.type)), picOk = pbs && pbs.type === 'screen' ? screenCap.ready : videoReady;
+  $('hint').textContent = !picOk ? (pbs && pbs.type === 'screen' ? 'The screen picture is not running. Open Settings to choose a window or monitor.' : 'The camera is not running. Open Settings to choose the camera.')
     : differs ? 'Press SEND to put this Preview on the Output.'
-      : clears ? 'Preview is blank. Press SEND to take the lower third off the Output.'
+      : clears ? 'Preview is blank. Press SEND to take the lower third and photo off the Output.'
       : 'Preview and Output match. Pick a verse or name to build the next look.';
   const box = $('onnow');
   box.innerHTML = '';
@@ -507,6 +816,26 @@ function saveScene() { /* the app always starts clean: plain camera, nothing on 
 // ---------- status lights ----------
 
 function setPill(id, cls, text) { const el = $(id); el.className = 'pill ' + cls; el.querySelector('span').textContent = text; }
+// One line of red text in the top bar while on air, like XSplit's title bar: what it is doing, where to, how long, and how healthy it is.
+function updateLiveStats() {
+  const box = $('liveStats');
+  if (!streaming) { box.hidden = true; box.textContent = ''; document.title = 'Redcast'; return; }
+  const ff = latestMetrics.ff || {}, cpu = latestMetrics.cpu || 0;
+  const rec = currentDest === 'record', test = currentDest === 'file';
+  const where = currentDest === 'youtube' ? 'YouTube' + (ytState.channel ? ' - ' + ytState.channel : '') : currentDest === 'rtmp' ? 'Custom stream address' : '';
+  const what = rec ? 'Recording' : test ? 'Test recording' : 'On Air';
+  const healthy = ff.running && ff.speed > 0.95;
+  const parts = [`${healthy ? what : (rec ? 'Recording trouble' : 'Stream trouble')}${where ? ' - ' + where : ''}`, fmtTime((Date.now() - streamStart) / 1000)];
+  if (ff.running) {
+    if (!rec && !test) parts.push(`Upload ${(Math.round(ff.bitrate || 0) / 1000).toFixed(1)} Mbps`);
+    parts.push(`${Math.round(ff.fps || 0)} fps`, `Lost frames: ${ff.drop || 0}`);
+  }
+  parts.push(`Computer ${Math.round(cpu)}%`);
+  if (outMode() === 'both' && !rec && !test) parts.push('Backup saving');
+  const line = parts.join('   ');
+  box.textContent = line; box.classList.toggle('trouble', !healthy); box.hidden = false;
+  document.title = 'Redcast - ' + line;
+}
 function updatePills() {
   $('liveBadge').textContent = streaming ? 'ON AIR' : 'OUTPUT';
   $('outDot').className = 'dot' + (streaming ? ' red' : '');
@@ -559,8 +888,8 @@ requestAnimationFrame(loop);
 // ---------- Settings: how lower thirds look. Every kind has its own look. ----------
 const FONT_LIST = ['Segoe UI', 'Figtree', 'Arial', 'Verdana', 'Trebuchet MS', 'Tahoma', 'Calibri', 'Georgia', 'Times New Roman', 'Impact'];
 const FONT_OPTS = FONT_LIST.map((f) => [f, f]);
-const ANIM_OPTS = [['fade', 'Fade'], ['rise', 'Rise up'], ['slide', 'Slide in from the left'], ['slideR', 'Slide in from the right'], ['wipe', 'Wipe across'], ['curtain', 'Open outward from the middle'], ['drop', 'Lower in from above'], ['tilt', 'Tilt up'], ['zoom', 'Zoom in'], ['bounce', 'Drop in and bounce'], ['unfold', 'Unfold from the middle'], ['flip', 'Swing up'], ['typewriter', 'Type the words on'], ['none', 'Cut (no animation)']];
-const ANIM_OPTS_NAME = [...ANIM_OPTS.slice(0, -1), ['line', 'Line stretches out, words rise and drop away'], ['none', 'Cut (no animation)']];
+const ANIM_OPTS = [['fade', 'Fade'], ['rise', 'Rise up'], ['slide', 'Slide in from the left'], ['slideR', 'Slide in from the right'], ['wipe', 'Wipe across'], ['curtain', 'Open outward from the middle'], ['drop', 'Lower in from above'], ['tilt', 'Tilt up'], ['zoom', 'Zoom in'], ['bounce', 'Drop in and bounce'], ['unfold', 'Unfold from the middle'], ['flip', 'Swing up'], ['typewriter', 'Type the words on'], ['spring', 'Spring in from the left'], ['grow', 'Grow out from the left'], ['wipeR', 'Wipe in from the right'], ['focus', 'Come into focus'], ['blinds', 'Open like blinds'], ['zoomout', 'Zoom out into place'], ['glitch', 'Quick glitch'], ['none', 'Cut (no animation)']];
+const ANIM_OPTS_NAME = [...ANIM_OPTS.slice(0, -1), ['line', 'Line stretches out, words rise and drop away'], ['blocks', 'Blocks slide in one after the other'], ['pop', 'Pop out from the left'], ['diag', 'Slide in along the slant'], ['flicker', 'Flicker on (neon)'], ['none', 'Cut (no animation)']];
 const ALIGN_OPTS = [['left', 'Left'], ['center', 'Centred']];
 const WEIGHT_OPTS = [['normal', 'Regular'], ['bold', 'Bold']];
 const R = (k, l, min, max, step) => ({ k, l, t: 'range', min, max, step });
@@ -608,12 +937,19 @@ function loadLooks() {
   // Version 3: every kind now has its own different animation and no light sweep by default, so older saved animation choices are dropped once.
   let tidy = false;
   try { tidy = localStorage.getItem('looksVersion') !== '3'; } catch (e) { /* ignore */ }
+  let tidyName = false;
+  try { tidyName = localStorage.getItem('nameAnimV') !== '1'; localStorage.setItem('nameAnimV', '1'); } catch (e) { /* ignore */ }
   Object.keys(LOOK_DEFAULTS).forEach((sl) => {
     const o = readStore('look.' + sl, {});
     if (tidy) { delete o.anim; delete o.animMs; delete o.shine; }
+    if (tidyName && sl === 'name') { // the slide-in used to ignore its design's animation: give a saved one the animation of its shape
+      const d = DESIGNS_NAME.find((x) => x.s.preset === o.preset && x.s.accent === o.accent) || DESIGNS_NAME.find((x) => x.s.preset === (o.preset || LOOK_DEFAULTS.name.preset));
+      delete o.anim; delete o.animMs; delete o.shine;
+      if (d) { o.anim = d.s.anim; if (d.s.animMs) o.animMs = d.s.animMs; }
+    }
     setLook(sl, o); // old saved looks are tidied by setLook
   });
-  if (tidy) { try { localStorage.setItem('looksVersion', '3'); Object.keys(LOOK_DEFAULTS).forEach((sl) => localStorage.setItem('look.' + sl, JSON.stringify(looks[sl]))); } catch (e) { /* ignore */ } }
+  if (tidy || tidyName) { try { localStorage.setItem('looksVersion', '3'); Object.keys(LOOK_DEFAULTS).forEach((sl) => localStorage.setItem('look.' + sl, JSON.stringify(looks[sl]))); } catch (e) { /* ignore */ } }
   buildLookControls('name');
 }
 function mk(tag, cls, html) { const e = document.createElement(tag); if (cls) e.className = cls; if (html !== undefined) e.innerHTML = html; return e; }
@@ -672,7 +1008,7 @@ function applyDesign(slot, d, all) {
   slots.forEach((s) => {
     const st = looks[s], p = PRESETS.find((x) => x.id === d.s.preset);
     const own = Object.assign({}, d.s);
-    if (STYLE_KEEPS_OWN_ANIMATION || (all && s !== slot)) { delete own.anim; delete own.animMs; delete own.shine; } // every kind keeps its own way of moving
+    if ((STYLE_KEEPS_OWN_ANIMATION && s !== 'name') || (all && s !== slot)) { delete own.anim; delete own.animMs; delete own.shine; } // full lower thirds keep their own way of moving; a slide-in moves the way its shape does
     Object.assign(st, own);
     st.radius = p ? p.radius : 0; st.showText = true;
     if (s !== 'name') { st.boxX = 0; st.boxW = 1920; if (st.boxH < 200 || st.boxH > 400) st.boxH = LOOK_DEFAULTS[s].boxH; }
@@ -772,6 +1108,7 @@ function shapeEl(slot) {
   sel.onchange = () => {
     if (st.preset === 'image' && sel.value !== 'image') { st.bgId = null; st.showText = true; st.opacity = LOOK_DEFAULTS[slot].opacity; }
     st.preset = sel.value; const p = PRESETS.find((x) => x.id === sel.value); st.radius = p ? p.radius : 0;
+    if (isName && SHAPE_ANIM[sel.value]) st.anim = SHAPE_ANIM[sel.value]; // each shape arrives its own way (change it below if you like)
     saveLook(slot); buildLookControls(slot);
   };
   wrap.appendChild(sel);
@@ -944,7 +1281,7 @@ function applyAudioMode() {
     mx.vidTv.gain.value = openScreens().some((s) => s.sent === 'media') ? 1 : 0; // screens showing the video hear it (each screen can turn its sound off)
   } catch (e) { /* not ready yet */ }
 }
-$('vidAudio').addEventListener('change', applyAudioMode);
+$('vidAudio').addEventListener('change', () => { camDraft.vidAudio = $('vidAudio').value; applyAudioMode(); updateSaveBar(); });
 
 // ---------- media engine: shelf, Play (Stream / TV / Both), queue, end-of-video ----------
 function mkPlayer() {
@@ -1012,6 +1349,7 @@ async function playTarget(target, clipId, fromQueue) {
   const sc = activeScreen();
   if (toTv && (!sc || !sc.open)) { screenNotOpen(sc); return; }
   const m = ensureMixer();
+  try { await m.ctx.resume(); } catch (e) { /* the browser wakes it on its own */ }
   pb.target = target; applyTargetSeg(); saveSettings();
   if (!fromQueue) qi = -1;
   if (selClipId !== c.id) { selClipId = c.id; renderClips(); }
@@ -1021,7 +1359,10 @@ async function playTarget(target, clipId, fromQueue) {
     const b = liveBase();
     if (!(b && b.type === 'media' && b.clipId === c.id)) setLiveBase('media', { clipId: c.id }, true, true); // the video goes to the Output only, never to Preview, and gets the whole screen
   }
-  if (toTv) { sc.armed = 'media'; sendScreen(sc); }
+  if (toTv) {
+    if (!(sc.sent === 'media' && !sc.img)) sc.before = { src: sc.sent, img: sc.img }; // remember what was up (a photo, the Output...) so the end of the video can put it back
+    sc.armed = 'media'; sendScreen(sc);
+  }
   { try { await p.el.play(); } catch (e) { banner('Could not play this file: ' + e.message); } }
   preloadNext();
   applyAudioMode();
@@ -1031,9 +1372,28 @@ async function playTarget(target, clipId, fromQueue) {
 function applyEnd(which) { // what happens when a video is over (or stopped)
   if (which.stream) {
     const b = liveBase();
-    if (b && b.type === 'media' && $('endStream').value === 'camera') setLiveBase('camera', null, true, true); // plain camera again
+    if (b && b.type === 'media' && $('endStream').value === 'camera') setLiveBase(plainBaseType(), null, true, true); // the plain picture again (camera or screen)
   }
-  if (which.tv && $('endTv').value === 'black') openScreens().filter((s) => s.sent === 'media').forEach((s) => { s.armed = 'black'; sendScreen(s); });
+  if (which.tv) {
+    const mode = $('endTv').value;
+    openScreens().filter((s) => s.sent === 'media' && !s.img).forEach((s) => { // only screens that are showing the video, not a photo
+      if (mode === 'black') { s.armed = 'black'; sendScreen(s); }
+      else if (mode === 'back') restoreScreen(s);
+    });
+  }
+}
+// Puts back what was on the screen before the video started (a photo, the Output, a test pattern...). If there was nothing, black.
+function restoreScreen(s) {
+  const b = s.before; s.before = null;
+  if (b && b.src === 'media' && b.img && clipById(b.img)) { // a photo: it is shown again straight away
+    s.img = b.img; s.armed = 'media'; s.sent = 'media';
+    pushScreen(s); if (!s.link.pc) startLink(s);
+    applyAudioMode(); updatePills(); renderScreens(); updateDispUI(); updateMediaUI();
+    log(`External display ${screenName(s)}: back to the photo`);
+    return;
+  }
+  s.armed = b && ['live', 'preview', 'pattern'].includes(b.src) ? b.src : 'black';
+  applyScreen(s, false);
 }
 function onClipEnded() {
   if ($('qAuto').checked && qi >= 0 && qi + 1 < queue.length) { qi++; playTarget(pb.target, queue[qi].clipId, true); return; }
@@ -1080,16 +1440,16 @@ function makeThumb(c) {
     v.src = c.url;
   });
 }
-function addClipFile(f, pickMe) {
+function addClipFile(f, pickMe, ext) {
   const c = { id: clipSeq++, name: f.name.replace(/\.[^.]+$/, ''), kind: f.type.startsWith('video/') ? 'video' : 'image', url: URL.createObjectURL(f), dur: 0, thumb: null, ready: false, bad: false };
   clips.push(c);
   renderClips();
-  makeThumb(c).then(() => { c.ready = true; renderClips(); if (pickMe && !c.bad) selectClip(c.id); });
+  makeThumb(c).then(() => { c.ready = true; renderClips(); if (pickMe && !c.bad) { if (ext) pickClipForScreen(c.id); else selectClip(c.id); } });
 }
 // Videos and photos added by hand go on the shelf too (they stay until the app closes).
-function addFiles(list) {
+function addFiles(list, ext) {
   const files = [...list].filter((f) => f.type.startsWith('video/') || f.type.startsWith('image/'));
-  files.forEach((f, i) => addClipFile(f, i === 0));
+  files.forEach((f, i) => addClipFile(f, i === 0, ext));
 }
 function selectClip(id) {
   selClipId = id;
@@ -1119,39 +1479,65 @@ function removeClip(id) {
   dropClip(id);
   renderClips(); renderQueue(); updateMediaUI();
 }
+function clipTile(c, ext) { // ext = the smaller pick-list on the External page (no queue or remove buttons there)
+  const t = document.createElement('div');
+  t.className = 'clip' + (c.id === selClipId ? ' sel' : '');
+  t.dataset.id = c.id;
+  const pic = c.thumb ? `<img src="${c.thumb.src}" alt="">` : '<div class="ph">Loading...</div>';
+  const meta = c.bad ? 'Could not open' : c.ready ? `Ready${c.kind === 'video' ? ' - ' + fmtMs(c.dur) : ' - photo'}` : 'Loading...';
+  t.innerHTML = `${pic}<div class="cname" title="${esc(c.name)}">${esc(c.name)}</div><div class="cmeta ${c.ready && !c.bad ? 'ok' : ''}">${c.ready && !c.bad ? '&#10003; ' : ''}${meta}</div>${!ext && c.kind === 'video' ? '<button class="cq">+ Queue</button>' : ''}${!ext && !c.fromFolder ? '<i title="Remove">x</i>' : ''}<span class="onscr">On screen</span>`;
+  t.onclick = (e) => {
+    if (!ext && e.target.tagName === 'I') { removeClip(c.id); return; }
+    if (!ext && e.target.classList.contains('cq')) { addToQueue(c.id); return; }
+    if (c.ready && !c.bad) { if (ext) pickClipForScreen(c.id); else selectClip(c.id); }
+  };
+  return t;
+}
 function renderClips() {
-  const box = $('clipList');
-  box.innerHTML = '';
-  if (!clips.length) { box.innerHTML = '<div class="msg" style="grid-column:1/-1">Choose a media folder in Settings and its photos and videos appear here by themselves. Or press Add files for one-off files (they stay until the app closes).</div>'; return; }
-  clips.forEach((c) => {
-    const t = document.createElement('div');
-    t.className = 'clip' + (c.id === selClipId ? ' sel' : '');
-    const pic = c.thumb ? `<img src="${c.thumb.src}" alt="">` : '<div class="ph">Loading...</div>';
-    const meta = c.bad ? 'Could not open' : c.ready ? `Ready${c.kind === 'video' ? ' - ' + fmtMs(c.dur) : ' - photo'}` : 'Loading...';
-    t.innerHTML = `${pic}<div class="cname" title="${esc(c.name)}">${esc(c.name)}</div><div class="cmeta ${c.ready && !c.bad ? 'ok' : ''}">${c.ready && !c.bad ? '&#10003; ' : ''}${meta}</div>${c.kind === 'video' ? '<button class="cq">+ Queue</button>' : ''}${c.fromFolder ? '' : '<i title="Remove">x</i>'}`;
-    t.onclick = (e) => {
-      if (e.target.tagName === 'I') { removeClip(c.id); return; }
-      if (e.target.classList.contains('cq')) { addToQueue(c.id); return; }
-      if (c.ready && !c.bad) selectClip(c.id);
-    };
-    box.appendChild(t);
+  const empty = '<div class="msg" style="grid-column:1/-1">Choose a media folder in Settings and its photos and videos appear here by themselves. Or press Add files for one-off files (they stay until the app closes).</div>';
+  [['clipList', false], ['tvClipList', true]].forEach(([id, ext]) => {
+    const box = $(id);
+    if (!box) return;
+    const keep = box.scrollTop;
+    box.innerHTML = '';
+    if (!clips.length) { box.innerHTML = empty; return; }
+    clips.forEach((c) => box.appendChild(clipTile(c, ext)));
+    box.scrollTop = keep;
   });
+  markOnScreen();
+}
+// Picking on the External page: choose what the selected screen will show, without adding a photo to the Preview.
+function pickClipForScreen(id) {
+  selClipId = id;
+  const s = activeScreen();
+  if (s) s.armed = 'media';
+  renderClips(); updateMediaUI(); updateDispUI();
+}
+function markOnScreen() { // a small tag on the tile that is up on the selected screen right now
+  let cid = null;
+  try { const s = activeScreen(); cid = s && s.open && s.sent === 'media' ? screenClip(s) : null; } catch (e) { /* screens not set up yet */ }
+  document.querySelectorAll('#tvClipList .clip').forEach((t) => t.classList.toggle('ison', cid != null && Number(t.dataset.id) === cid));
+  const c = clipById(selClipId);
+  const nm = $('tvPickName'); if (nm) nm.textContent = c ? c.name : '';
 }
 
 // ----- media folder: everything in the chosen folder is on the shelf, and it is remembered between runs -----
 let mediaState = { dir: '', exists: false, count: 0 };
 let thumbActive = 0;
 const thumbWaiting = [];
+let thumbsHeld = true; // held until start-up has finished
+function releaseThumbs() { thumbsHeld = false; queueThumb(null); }
 function queueThumb(c) { // a few at a time, so a big folder does not freeze the app
   const next = () => {
-    while (thumbActive < 3 && thumbWaiting.length) {
+    while (!thumbsHeld && thumbActive < 3 && thumbWaiting.length) {
       const k = thumbWaiting.shift();
       if (!clipById(k.id)) continue;
       thumbActive++;
       makeThumb(k).then(() => { k.ready = true; }).finally(() => { thumbActive--; renderClips(); next(); });
     }
   };
-  thumbWaiting.push(c); next();
+  if (c) thumbWaiting.push(c);
+  next();
 }
 function syncFolder(r) {
   r = r || {};
@@ -1225,8 +1611,10 @@ $('cQueueAdd').onclick = () => addToQueue();
 // ----- Content tab controls -----
 function applyTargetSeg() { document.querySelectorAll('#targetSeg button').forEach((b) => b.classList.toggle('on', b.dataset.t === pb.target)); }
 document.querySelectorAll('#targetSeg button').forEach((b) => { b.onclick = () => { pb.target = b.dataset.t; applyTargetSeg(); saveSettings(); }; });
-$('btnClipAdd').onclick = () => $('clipFile').click();
-$('clipFile').onchange = () => { addFiles($('clipFile').files); $('clipFile').value = ''; };
+let addFromExt = false; // the Add button on the External page picks the file for the screen, not for Preview
+$('btnClipAdd').onclick = () => { addFromExt = false; $('clipFile').click(); };
+$('tvClipAdd').onclick = () => { addFromExt = true; $('clipFile').click(); };
+$('clipFile').onchange = () => { addFiles($('clipFile').files, addFromExt); addFromExt = false; $('clipFile').value = ''; };
 function togglePlay(target) {
   if (isPlayingNow() && pb.clip === selClipId) curPlayer().el.pause();
   else playTarget(target, selClipId);
@@ -1258,19 +1646,171 @@ function updateMediaUI() {
 }
 function fmtMs(s) { s = Math.max(0, Math.floor(s || 0)); return `${Math.floor(s / 60)}:${String(s % 60).padStart(2, '0')}`; }
 
+// ---------- Web page: shown on the stream and/or an external screen, and used with the mouse and keyboard from here ----------
+const web = { on: false, url: '', title: '', loading: false, error: '', bmp: null, ptr: null, target: 'stream' };
+let webSeq = 0, webShown = 0;
+function drawWebFrame(ctx, x, y, w, h) {
+  ctx.fillStyle = '#000'; ctx.fillRect(x, y, w, h);
+  if (web.bmp) {
+    const k = Math.min(w / web.bmp.width, h / web.bmp.height), dw = web.bmp.width * k, dh = web.bmp.height * k;
+    ctx.drawImage(web.bmp, x + (w - dw) / 2, y + (h - dh) / 2, dw, dh);
+  } else {
+    ctx.fillStyle = '#666'; ctx.textAlign = 'center'; ctx.font = `${h * 0.05}px "Segoe UI", Arial`;
+    ctx.fillText(web.error ? 'The page did not load' : web.loading ? 'Loading...' : 'Type a web address and press Load', x + w / 2, y + h / 2); ctx.textAlign = 'left';
+  }
+}
+drawWebItem = (ctx, it) => drawWebFrame(ctx, it.x, it.y, it.w, it.h);
+function drawWebRing(ctx, cv) { // a small ring where the mouse is, drawn only on this operator preview, never on the stream or the external screen
+  const p = web.ptr; if (!p || p.cv !== cv) return;
+  const k = cv.width / 1920;
+  ctx.save(); ctx.lineWidth = Math.max(2, 3 * k * 1.5); ctx.strokeStyle = 'rgba(255,255,255,.9)'; ctx.fillStyle = 'rgba(239,75,82,.35)';
+  ctx.beginPath(); ctx.arc(p.x * k, p.y * k, Math.max(6, 12 * k * 1.5), 0, Math.PI * 2); ctx.fill(); ctx.stroke(); ctx.restore();
+}
+window.api.on('web:frame', (f) => {
+  const n = ++webSeq;
+  if (f.cw && f.ch) { web.cw = f.cw; web.ch = f.ch; } // the page's real size
+  createImageBitmap(new Blob([f.buf], { type: 'image/jpeg' })).then((b) => {
+    if (n < webShown) { b.close(); return; }
+    webShown = n; const old = web.bmp; web.bmp = b; if (old) old.close();
+  }).catch(() => { /* a bad frame is skipped */ });
+});
+window.api.on('web:state', (st) => {
+  web.url = st.url || ''; web.title = st.title || ''; web.loading = !!st.loading; web.error = st.error || '';
+  web.on = !!web.url;
+  if (!web.on) { if (web.bmp) { web.bmp.close(); web.bmp = null; } web.ptr = null; }
+  [['webUrl'], ['tvWebUrl']].forEach(([id]) => { const el = $(id); if (el && document.activeElement !== el && web.url) el.value = web.url; });
+  updateWebUI();
+});
+const isSlides = (u) => /docs\.google\.com\/presentation\//i.test(u || '');
+function updateWebUI() {
+  const t = web.error ? 'Could not load: ' + web.error : web.loading ? 'Loading...' : web.on ? (web.title || web.url) : 'No page loaded';
+  $('webState').textContent = t; $('tvWebState').textContent = t;
+  const live = !!(liveBase() && liveBase().type === 'web');
+  $('webStop').disabled = !(live || openScreens().some((s) => s.sent === 'web'));
+  $('webShow').disabled = !web.on;
+  const slides = web.on && isSlides(web.url);
+  $('webSlideBox').hidden = !slides; $('tvSlideBox').hidden = !slides;
+  if (!slides && webAutoTimer) setWebAuto(0);
+}
+// A Google Slides link becomes a clean full-picture slideshow (no editor). Anything else is used as typed.
+function slidesUrl(raw) {
+  const m = /docs\.google\.com\/presentation\/d\/(e\/)?([\w-]+)/i.exec(raw);
+  if (!m) return raw;
+  return `https://docs.google.com/presentation/d/${m[1] || ''}${m[2]}/embed?start=false&loop=false&rm=minimal`;
+}
+let webAutoTimer = null;
+function setWebAuto(sec) {
+  if (webAutoTimer) { clearInterval(webAutoTimer); webAutoTimer = null; }
+  $('webAuto').value = String(sec); $('tvWebAuto').value = String(sec);
+  if (sec > 0) webAutoTimer = setInterval(() => { if (web.on) webKey('Right'); }, sec * 1000);
+}
+async function webLoad(raw) {
+  raw = String(raw || '').trim();
+  if (!raw) { showModal('Web address', '<p>Type a web address first, for example https://slides.google.com/...</p>', [{ label: 'OK', cls: 'primary' }]); return false; }
+  const r = await window.api.webOpen(slidesUrl(raw));
+  if (!r.ok) { showModal('Could not open that', `<p>${esc(r.error || 'Try another address.')}</p>`, [{ label: 'OK', cls: 'primary' }]); return false; }
+  $('webUrl').value = raw; $('tvWebUrl').value = raw;
+  return true;
+}
+$('webLoad').onclick = () => webLoad($('webUrl').value);
+$('tvWebLoad').onclick = () => webLoad($('tvWebUrl').value);
+$('webUrl').onkeydown = (e) => { if (e.key === 'Enter') webLoad($('webUrl').value); };
+$('tvWebUrl').onkeydown = (e) => { if (e.key === 'Enter') webLoad($('tvWebUrl').value); };
+$('webBack').onclick = $('tvWebBack').onclick = () => window.api.webNav('back');
+$('webReload').onclick = $('tvWebReload').onclick = () => window.api.webNav('reload');
+function webKey(k) { window.api.webInput({ type: 'keyDown', keyCode: k }); setTimeout(() => window.api.webInput({ type: 'keyUp', keyCode: k }), 40); }
+$('webPrev').onclick = $('tvWebPrev').onclick = () => webKey('Left');
+$('webNext').onclick = $('tvWebNext').onclick = () => webKey('Right');
+$('webAuto').onchange = () => setWebAuto(Number($('webAuto').value) || 0);
+$('tvWebAuto').onchange = () => setWebAuto(Number($('tvWebAuto').value) || 0);
+$('webClose').onclick = async () => { setWebAuto(0); stopWeb(); await window.api.webClose(); };
+document.querySelectorAll('#webTargetSeg button').forEach((b) => { b.onclick = () => { web.target = b.dataset.t; document.querySelectorAll('#webTargetSeg button').forEach((x) => x.classList.toggle('on', x === b)); }; });
+function stopWeb() { // take the page off the stream and every screen that shows it
+  const b = liveBase();
+  if (b && b.type === 'web') setLiveBase(plainBaseType(), null, true, true);
+  openScreens().filter((s) => s.sent === 'web').forEach((s) => { s.armed = 'black'; applyScreen(s, false); });
+  updateWebUI(); updateDispUI();
+}
+$('webStop').onclick = stopWeb;
+$('webShow').onclick = () => {
+  if (!web.on) { showModal('No web page yet', '<p>Type a web address and press Load first.</p>', [{ label: 'OK', cls: 'primary' }]); return; }
+  const toTv = web.target === 'tv' || web.target === 'both', toStream = web.target === 'stream' || web.target === 'both';
+  const sc = activeScreen();
+  if (toTv && (!sc || !sc.open)) { screenNotOpen(sc); return; }
+  if (toStream) {
+    endTech(false);
+    try { curPlayer().el.pause(); } catch (e) { /* no video playing */ }
+    const b = liveBase();
+    if (!(b && b.type === 'web')) setLiveBase('web', {}, true, true);
+  }
+  if (toTv) { sc.armed = 'web'; sendScreen(sc); }
+  updateWebUI();
+};
+// Mouse and keyboard on a preview go to the page (never to the stream: the stream only gets the page's own picture).
+const WEB_KEYS = { ArrowLeft: 'Left', ArrowRight: 'Right', ArrowUp: 'Up', ArrowDown: 'Down', ' ': 'Space', Escape: 'Escape', Enter: 'Enter', Backspace: 'Backspace', Delete: 'Delete', Tab: 'Tab', Home: 'Home', End: 'End', PageUp: 'PageUp', PageDown: 'PageDown' };
+function attachWebInput(cv, active) {
+  const mods = (e) => { const m = []; if (e.shiftKey) m.push('shift'); if (e.ctrlKey) m.push('control'); if (e.altKey) m.push('alt'); if (e.metaKey) m.push('meta'); return m; };
+  const pt = (e) => { // where the pointer is on the page, allowing for the picture being fitted inside the box
+    const r = cv.getBoundingClientRect(), bw = web.bmp ? web.bmp.width : 16, bh = web.bmp ? web.bmp.height : 9;
+    const k = Math.min(r.width / bw, r.height / bh), dw = bw * k, dh = bh * k;
+    const ox = r.left + (r.width - dw) / 2, oy = r.top + (r.height - dh) / 2, pw = web.cw || 1920, ph = web.ch || 1080;
+    return { x: Math.round(Math.max(0, Math.min(pw - 1, (e.clientX - ox) / dw * pw))), y: Math.round(Math.max(0, Math.min(ph - 1, (e.clientY - oy) / dh * ph))) };
+  };
+  const btn = (e) => ['left', 'middle', 'right'][e.button] || 'left';
+  let lastMove = 0;
+  cv.addEventListener('mousedown', (e) => { if (!active()) return; if ((e.detail || 1) > 1) { e.preventDefault(); return; } /* a double-click never reaches the page: it only opens or closes the big view */ cv.focus(); const p = pt(e); web.ptr = { x: p.x, y: p.y, cv }; window.api.webInput(Object.assign({ type: 'mouseDown', button: btn(e), clickCount: e.detail || 1, modifiers: mods(e) }, p)); e.preventDefault(); });
+  cv.addEventListener('mouseup', (e) => { if (!active()) return; if ((e.detail || 1) > 1) { e.preventDefault(); return; } window.api.webInput(Object.assign({ type: 'mouseUp', button: btn(e), clickCount: e.detail || 1, modifiers: mods(e) }, pt(e))); e.preventDefault(); });
+  cv.addEventListener('mousemove', (e) => { if (!active()) { cv.style.cursor = ''; return; } const p = pt(e); web.ptr = { x: p.x, y: p.y, cv }; cv.style.cursor = 'crosshair'; const now = performance.now(); if (now - lastMove < 30) return; lastMove = now; window.api.webInput(Object.assign({ type: 'mouseMove', modifiers: mods(e) }, p)); });
+  cv.addEventListener('mouseleave', () => { if (web.ptr && web.ptr.cv === cv) web.ptr = null; });
+  cv.addEventListener('wheel', (e) => { if (!active()) return; window.api.webInput(Object.assign({ type: 'mouseWheel', deltaX: -e.deltaX, deltaY: -e.deltaY, modifiers: mods(e) }, pt(e))); e.preventDefault(); }, { passive: false });
+  cv.addEventListener('contextmenu', (e) => { if (active()) e.preventDefault(); });
+  const key = (e, type) => {
+    if (!active() || e.ctrlKey || e.metaKey) return; // Ctrl shortcuts stay with the app
+    if (e.key === 'Escape' && zoomed) return; // Esc still closes the big view
+    const k = WEB_KEYS[e.key] || (e.key.length === 1 ? e.key : null);
+    e.stopPropagation(); e.preventDefault(); // the app's own arrow-key and Delete shortcuts must not fire while typing into the page
+    if (!k) return;
+    window.api.webInput({ type, keyCode: k, modifiers: mods(e) });
+    if (type === 'keyDown' && e.key.length === 1) window.api.webInput({ type: 'char', keyCode: e.key, modifiers: mods(e) });
+  };
+  cv.addEventListener('keydown', (e) => key(e, 'keyDown'));
+  cv.addEventListener('keyup', (e) => key(e, 'keyUp'));
+}
+attachWebInput(liveCanvas, () => { const b = liveBase(); return web.on && !!b && b.type === 'web' && (zoomed === 'live' || layout === 'B'); }); // the page is used on the big Output (double-click the Output to open it); in the small box clicks never reach the page
+attachWebInput($('dispCanvas'), () => { const s = activeScreen(); return web.on && view === 'TV' && !!s && s.armed === 'web'; });
+
+
+// ---------- Keyboard shortcuts (listed in Settings > Keyboard shortcuts) ----------
+window.addEventListener('keydown', (e) => {
+  const ctrl = e.ctrlKey || e.metaKey;
+  if (!$('modal').hidden || e.repeat) return;
+  const tag = (e.target.tagName || '').toLowerCase(), typing = ['input', 'select', 'textarea'].includes(tag);
+  const done = () => { e.preventDefault(); e.stopImmediatePropagation(); };
+  if (ctrl && e.key === 'Enter') { // push live
+    if (view === 'Show') { $('btnGo').click(); done(); } else if (view === 'TV') { $('btnDispSend').click(); done(); }
+    return;
+  }
+  if (typing) return;
+  if (ctrl && e.shiftKey && e.key.toLowerCase() === 'l') { $('btnStream').click(); done(); return; } // start or stop the stream (it still asks first)
+  if (ctrl && e.key === 'Backspace' && view === 'Show') { $('btnClear').click(); done(); return; }
+  if (view === 'Show' && dockTab === 'Web' && web.on && isSlides(web.url) && !ctrl && !e.altKey && ['ArrowLeft', 'ArrowRight'].includes(e.key)) { webKey(e.key === 'ArrowLeft' ? 'Left' : 'Right'); done(); }
+}, true);
+
 // ---------- External displays: any number of monitors, each showing its own thing ----------
 // Each monitor gets its own window, its own source, its own sound setting and its own picture link.
-const dispCanvas = $('dispCanvas'), dctx = dispCanvas.getContext('2d');
-const SRC_NAMES = { live: 'Output', preview: 'Preview', media: 'Video/photo', pattern: 'Test pattern', black: 'Black', off: 'off' };
-const isPicture = (s) => s === 'live' || s === 'preview' || s === 'media';
+const dispCanvas = $('dispCanvas'), dctx = dispCanvas.getContext('2d', { alpha: false }); dctx.imageSmoothingQuality = 'high';
+const SRC_NAMES = { live: 'Output', preview: 'Preview', media: 'Video/photo', web: 'Web page', pattern: 'Test pattern', black: 'Black', off: 'off' };
+const isPicture = (s) => s === 'live' || s === 'preview' || s === 'media' || s === 'web';
 const screens = new Map(); // display id -> screen
 let activeId = null, dispLast = 0;
 const activeScreen = () => screens.get(activeId) || null;
 const openScreens = () => [...screens.values()].filter((s) => s.open);
 const screenClip = (s) => (s && s.img) || pb.clip || selClipId; // a photo on that screen, or the loaded video
+const extFps = () => Math.min(60, Math.max(24, Number($('fps').value) || 30)); // the external screens move as smoothly as the stream
 function mkScreen(d) {
-  const cv = document.createElement('canvas'); cv.width = 1920; cv.height = 1080;
-  return { id: d.id, label: d.label, isMain: d.isMain, open: false, armed: 'live', sent: 'off', img: null, mute: false, link: { pc: null, ready: false }, cv, ctx: cv.getContext('2d'), last: 0 };
+  const cv = document.createElement('canvas'); cv.width = 1920; cv.height = 1080; // full HD, matching the Output
+  const ctx = cv.getContext('2d', { alpha: false }); ctx.imageSmoothingEnabled = true; ctx.imageSmoothingQuality = 'high';
+  return { id: d.id, label: d.label, isMain: d.isMain, open: false, armed: 'live', sent: 'off', img: null, mute: false, link: { pc: null, ready: false }, cv, ctx, last: 0 };
 }
 // Names and hidden screens are remembered between runs.
 const screenPrefs = readStore('screenPrefs', {});
@@ -1344,7 +1884,8 @@ function drawSource(ctx, src, w, h, clipId) {
     if (src === 'media') {
       if (clipId) drawClipFrame(ctx, clipId, 0, 0, w, h);
       else { ctx.fillStyle = '#666'; ctx.textAlign = 'center'; ctx.font = `${h * 0.05}px "Segoe UI", Arial`; ctx.fillText('Pick a video or photo in Videos & Photos', w / 2, h / 2); ctx.textAlign = 'left'; }
-    } else if (src === 'pattern') drawBars(ctx, w, h);
+    } else if (src === 'web') drawWebFrame(ctx, 0, 0, w, h);
+    else if (src === 'pattern') drawBars(ctx, w, h);
   }
 }
 function drawDisplayFrames(now) {
@@ -1353,15 +1894,31 @@ function drawDisplayFrames(now) {
     const s = activeScreen();
     if (s) drawSource(dctx, s.armed, dispCanvas.width, dispCanvas.height, s.armed === 'media' ? selClipId : null);
     else { dctx.fillStyle = '#000'; dctx.fillRect(0, 0, dispCanvas.width, dispCanvas.height); }
+    if (s && s.armed === 'web') drawWebRing(dctx, dispCanvas);
   }
+  if (view === 'Settings' && settingsPage === 'cam') drawCropEditor();
   if (view === 'Settings' && settingsPage === 'lower') drawLookSample('name', now);
   if (view === 'Settings' && settingsPage === 'cards') drawLookSample('card', now);
   screens.forEach((s) => {
-    if (s.link.pc && isPicture(s.sent) && now - s.last >= 1000 / 30 - 3) { s.last = now; drawSource(s.ctx, s.sent, s.cv.width, s.cv.height, screenClip(s)); }
+    if (s.link.pc && isPicture(s.sent) && now - s.last >= 1000 / extFps() - 3) { s.last = now; drawSource(s.ctx, s.sent, s.cv.width, s.cv.height, screenClip(s)); }
   });
 }
 
 // ----- the private link to each external window -----
+// Chromium starts a local picture link at a very low bitrate and only slowly climbs, which looks soft and blocky. Ask for a high floor and start so it is sharp straight away.
+function boostSdp(sdp) {
+  const lines = sdp.split('\r\n'), vpt = new Set(), hasFmtp = new Set();
+  lines.forEach((l) => { let m = /^a=rtpmap:(\d+) (VP8|VP9|H264|AV1)\//.exec(l); if (m) vpt.add(m[1]); m = /^a=fmtp:(\d+) /.exec(l); if (m) hasFmtp.add(m[1]); });
+  const x = 'x-google-min-bitrate=8000;x-google-start-bitrate=12000;x-google-max-bitrate=20000', out = [];
+  lines.forEach((l) => {
+    const f = /^a=fmtp:(\d+) /.exec(l);
+    if (f && vpt.has(f[1])) { out.push(l + ';' + x); return; }
+    out.push(l);
+    const r = /^a=rtpmap:(\d+) (VP8|VP9|H264|AV1)\//.exec(l);
+    if (r && !hasFmtp.has(r[1])) out.push(`a=fmtp:${r[1]} ${x}`);
+  });
+  return out.join('\r\n');
+}
 function stopLink(s, tell = true) {
   if (!s) return;
   if (s.link.pc) { try { s.link.pc.close(); } catch (e) { /* ignore */ } }
@@ -1373,17 +1930,20 @@ async function startLink(s) {
   stopLink(s, false);
   try {
     const m = ensureMixer();
-    const stream = s.cv.captureStream(30);
+    const fps = extFps();
+    const stream = s.cv.captureStream(fps);
+    stream.getVideoTracks().forEach((t) => { try { t.contentHint = 'detail'; } catch (e) { /* ignore */ } }); // keep it sharp (text, lower thirds) rather than trading detail for speed
     m.tvDest.stream.getAudioTracks().forEach((t) => stream.addTrack(t));
     const pc = new RTCPeerConnection({ iceServers: [] });
     s.link.pc = pc;
     stream.getTracks().forEach((t) => pc.addTrack(t, stream));
     pc.onicecandidate = (e) => { if (e.candidate) window.api.rtcSignal(s.id, { type: 'ice', candidate: e.candidate.toJSON() }); };
     const offer = await pc.createOffer();
+    offer.sdp = boostSdp(offer.sdp);
     await pc.setLocalDescription(offer);
     window.api.rtcSignal(s.id, { type: 'offer', sdp: offer.sdp });
     pc.getSenders().filter((x) => x.track && x.track.kind === 'video').forEach(async (x) => {
-      try { const p = x.getParameters(); if (!p.encodings || !p.encodings.length) p.encodings = [{}]; p.encodings[0].maxBitrate = 12e6; await x.setParameters(p); } catch (e) { /* ignore */ }
+      try { const p = x.getParameters(); if (!p.encodings || !p.encodings.length) p.encodings = [{}]; Object.assign(p.encodings[0], { maxBitrate: 20e6, maxFramerate: fps, scaleResolutionDownBy: 1, priority: 'high', networkPriority: 'high' }); p.degradationPreference = 'maintain-resolution'; await x.setParameters(p); } catch (e) { /* ignore */ }
     });
     log('External display picture link started: ' + s.label);
   } catch (e) { banner('Could not start the picture for that screen: ' + e.message); stopLink(s); }
@@ -1433,6 +1993,7 @@ function applyScreen(s, interactive) {
     else if (sc && sc.kind === 'image') s.img = sc.id; // a photo never touches the video player
     else { s.img = null; if (selClipId && selClipId !== pb.clip) loadClip(selClipId); } // loaded paused: it only plays when Play is pressed
   }
+  if (src === 'web' && !web.on) { if (interactive) { showModal('No web page yet', '<p>Type a web address and press Load first.</p>', [{ label: 'OK', cls: 'primary' }]); return; } src = 'black'; }
   const was = s.sent;
   if (was === 'media' && src !== 'media' && pb.target === 'tv' && !openScreens().some((o) => o !== s && o.sent === 'media')) { try { curPlayer().el.pause(); } catch (e) { /* ignore */ } }
   s.sent = src;
@@ -1454,9 +2015,10 @@ function renderScreens() {
   box.innerHTML = '';
   if (!screens.size) box.innerHTML = '<div class="small">No monitors found.</div>';
   else if (!visibleScreens().length) box.innerHTML = '<div class="small">All screens are hidden. Show them again in Settings &gt; Screens.</div>';
-  visibleScreens().forEach((s) => {
+  visibleScreens().forEach((s, idx) => {
+    const n = idx + 1;
     const c = mk('div', 'scard' + (s.id === activeId ? ' on' : ''));
-    c.innerHTML = `<div class="sname"><i class="dot${s.open ? ' blue' : ''}"></i>${esc(screenName(s))}</div><div class="sstat">${s.isMain ? 'This screen - ' : ''}${s.open ? 'Showing: ' + SRC_NAMES[s.sent] : 'Off'}</div>`;
+    c.innerHTML = `<div class="sname"><span class="snum">${n}</span>${esc(screenName(s))}${s.id === activeId ? ' <em class="seltag">Selected</em>' : ''}</div><div class="sstat">${s.isMain ? 'This computer\'s own screen - ' : ''}${s.open ? 'On: showing ' + SRC_NAMES[s.sent] : 'Off'}</div>`;
     const b = mk('button', s.open ? '' : 'primary', s.open ? 'Close' : 'Open');
     b.onclick = (e) => { e.stopPropagation(); if (s.open) closeScreen(s); else openScreen(s); };
     c.appendChild(b);
@@ -1474,7 +2036,19 @@ function updateDispUI() {
   $('dispNow').textContent = n ? `${n} screen${n > 1 ? 's' : ''} on` : 'Off';
   $('tvDot').className = 'dot' + (s && s.open ? ' blue' : '');
   $('tvNote').textContent = !s ? (screens.size ? 'All screens are hidden. Show one again in Settings > Screens.' : 'No external monitor was found.') : s.open ? `${screenName(s)} is showing: ${SRC_NAMES[s.sent]}. This picture is what SEND will put up.` : `${screenName(s)} is off. Press Open on it in the list.`;
+  { // which screen is being changed, said clearly in four places
+    const vis = visibleScreens(), num = s ? vis.indexOf(s) + 1 : 0, nm = s ? screenName(s) : 'No screen';
+    $('tvTargetName').textContent = s ? (vis.length > 1 ? `Screen ${num}: ${nm}` : nm) : nm;
+    $('tvTargetState').textContent = !s ? '' : s.open ? 'On' : 'Off';
+    $('tvTarget').classList.toggle('on', !!s && s.open); $('tvTarget').classList.toggle('none', !s);
+    $('tvBadge').textContent = s ? `PREVIEW OF ${nm.toUpperCase()}` : 'NO SCREEN';
+    $('dispSendMain').textContent = s ? `SEND TO ${nm.toUpperCase().slice(0, 22)}` : 'SEND TO SCREEN';
+    $('screenAudioLbl').textContent = s ? `Play video sound on ${nm}` : 'Play video sound on this screen';
+  }
   $('btnDisplay').classList.toggle('live', n > 0);
+  $('viewTV').classList.toggle('mediamode', !!s && s.armed === 'media');
+  { const isWeb = !!s && s.armed === 'web'; $('viewTV').classList.toggle('webmode', isWeb); $('tvWebBox').hidden = !isWeb; if (isWeb) $('tvNote').textContent = 'Click, scroll and type on this picture to use the page. Your mouse is never on the screen people see. SEND puts the page up.'; updateWebUI(); }
+  markOnScreen();
 }
 document.querySelectorAll('#viewTV .srcs button').forEach((b) => { b.onclick = () => { const s = activeScreen(); if (!s) return; s.armed = b.dataset.src; updateDispUI(); updateMediaUI(); }; });
 $('btnDisplay').onclick = () => setView('TV');
@@ -1559,32 +2133,34 @@ async function requestStart() {
   const o = readStreamOpts();
   const dest = effectiveDest();
   const lines = [];
-  const add = (state, text) => lines.push({ state, text });
-  add(videoReady ? 'ok' : 'no', videoReady ? 'Camera is working' : 'Camera is not running (open Settings)');
-  if (!audioTrack) add('wn', 'No audio source selected');
-  else add(audioDb > -75 ? 'ok' : 'wn', audioDb > -75 ? 'Audio is coming in' : 'Audio is very quiet - is the right source selected?');
+  const add = (state, title, sub) => lines.push({ state, title, sub: sub || '' });
+  const rec = o.record && dest !== 'file';
+  // Plain words only: each line says what will happen, or what to fix.
+  add(videoReady ? 'ok' : 'no', videoReady ? 'Camera is ready' : 'The camera is not on', videoReady ? '' : 'Open Settings and press Start camera.');
+  if (!audioTrack) add('wn', 'No sound source picked', 'People watching will not hear anything. Pick one in Settings.');
+  else if (audioDb > -75) add('ok', 'Sound is coming in', '');
+  else add('wn', 'The sound is very quiet', 'Check that the right microphone or mixer is picked, and that it is turned up.');
   if (dest === 'youtube') {
-    add('ok', `YouTube: signed in as ${ytState.channel}`);
-    add('ok', 'Title: ' + (await window.api.ytExpand($('ytTitle').value)) + ` (${$('ytPrivacy').value})`);
-  } else if (dest === 'record') add('ok', 'Recording only: nothing is sent to the internet');
-  else if (dest === 'rtmp') add('ok', 'Using the manual stream URL and key');
-  else if (dest === 'file') add('wn', 'Saving to a test file on this PC (not live on the internet)');
-  else add('no', 'No place to stream to. Sign in with YouTube in Settings.');
-  add(encoderChecked ? 'ok' : 'wn', 'Encoder: ' + (ENC_LABELS[o.encoder] || o.encoder));
-  if (o.record && dest !== 'file') {
+    add('ok', 'Going live on YouTube', `Signed in as ${ytState.channel}. Title: ${await window.api.ytExpand($('ytTitle').value)}`);
+  } else if (dest === 'record') add('ok', 'Recording only', 'Nothing is sent to the internet.');
+  else if (dest === 'rtmp') add('ok', 'Going live with your own stream address', '');
+  else if (dest === 'file') add('wn', 'This is only a test', 'It saves a file on this computer. Nobody can watch it.');
+  else add('no', 'Nowhere to send the stream yet', 'Open Settings > Stream and sign in with YouTube.');
+  if (rec) {
     const free = await window.api.diskFree();
-    const what = dest === 'record' ? 'Recording' : 'Backup recording', where = await window.api.recDir();
-    if (free === null) add('wn', `${what} is on (could not check disk space)`);
-    else if (free < 10e9) add('wn', `${what} is on, but only ${(free / 1e9).toFixed(1)} GB is free on this PC`);
-    else add('ok', `${what} is on (${(free / 1e9).toFixed(0)} GB free). Saved in ${where}`);
+    const where = await window.api.recDir();
+    const what = dest === 'record' ? 'The recording' : 'A backup copy';
+    if (free !== null && free < 10e9) add('wn', `${what} will be saved, but this computer is nearly full`, `Only ${(free / 1e9).toFixed(1)} GB is free. Free up some space first if you can.`);
+    else add('ok', `${what} will be saved on this computer`, `In: ${where}`);
   }
-  const blocked = lines.some((l) => l.state === 'no');
-  const mark = { ok: 'OK', no: 'FIX', wn: 'CHECK' };
-  const html = lines.map((l) => `<div class="check-line ${l.state}"><b>${mark[l.state]}</b><span>${esc(l.text)}</span></div>`).join('');
-  const buttons = [{ label: 'Cancel', cls: 'ghost' }];
-  if (blocked) buttons.push({ label: 'Open Settings', cls: 'primary', onClick: () => openSettings('cam') });
-  else buttons.push({ label: dest === 'file' ? 'START TEST' : startText(), cls: 'primary', onClick: beginStream });
-  showModal(blocked ? 'Not ready yet' : 'Ready to start?', html, buttons);
+  const blocked = lines.some((l) => l.state === 'no'), warned = lines.some((l) => l.state === 'wn');
+  const icon = { ok: '&#10003;', wn: '!', no: '&#10005;' };
+  const head = blocked ? 'A few things need fixing first.' : warned ? 'Almost ready. Have a quick look at the yellow items.' : 'Everything looks good.';
+  const html = `<div class="sd-head ${blocked ? 'no' : warned ? 'wn' : 'ok'}">${head}</div>` + lines.map((l) => `<div class="sd-row ${l.state}"><span class="sd-ic">${icon[l.state]}</span><span class="sd-tx"><b>${esc(l.title)}</b>${l.sub ? `<small>${esc(l.sub)}</small>` : ''}</span></div>`).join('');
+  const buttons = [{ label: 'Not yet', cls: 'ghost' }];
+  if (blocked) buttons.push({ label: 'Open Settings', cls: 'primary', onClick: () => openSettings(dest === 'none' ? 'stream' : 'cam') });
+  else buttons.push({ label: dest === 'file' ? 'Start the test' : dest === 'record' ? 'Start recording' : 'Go live', cls: 'primary', onClick: beginStream });
+  showModal(blocked ? 'Not ready yet' : dest === 'record' ? 'Ready to record?' : 'Ready to go live?', html, buttons);
 }
 
 async function beginStream() {
@@ -1625,7 +2201,7 @@ function startRecorder(o) {
   recorder.start(200);
   streaming = true; userStopped = false; streamStart = Date.now(); samples = []; longFramesTotal = 0;
   liveCanvas.classList.add('onair');
-  const b = $('btnStream'); b.textContent = stopText(); b.classList.add('stop');
+  const b = $('btnStream'); b.textContent = stopText(); b.classList.add('stop'); updateLiveStats();
   $('summary').textContent = recordOnly() ? 'Recording...' : 'Stream running...';
 }
 
@@ -1641,7 +2217,7 @@ window.api.on('stream:ended', (e) => {
   const was = streaming;
   streaming = false;
   liveCanvas.classList.remove('onair');
-  const b = $('btnStream'); b.textContent = startText(); b.classList.remove('stop');
+  const b = $('btnStream'); b.textContent = startText(); b.classList.remove('stop'); updateLiveStats();
   if (recorder && recorder.state !== 'inactive') { try { recorder.stop(); } catch (err) { /* ignore */ } }
   if (!was) return;
   if (currentBroadcast) { window.api.ytEnd(currentBroadcast.broadcastId); }
@@ -1661,10 +2237,11 @@ window.api.on('metrics', (m) => {
   const elapsed = streaming ? (Date.now() - streamStart) / 1000 : 0;
   if (streaming) {
     samples.push({ t: elapsed, cpu: m.cpu, fps: ff.fps, speed: ff.speed, drop: ff.drop, frame: ff.frame, queued: ff.queued });
-    const ok = ff.running && ff.speed > 0.95;
-    $('streamStatus').textContent = `${ok ? (currentDest === 'record' ? 'Recording' : 'On air') : 'Starting / trouble'} - ${fmtTime(elapsed)} - ${Math.round(ff.bitrate || 0)} kbps${outMode() === 'both' && currentDest !== 'file' && currentDest !== 'record' ? ' - backup recording ON' : ''}${currentBroadcast ? ' - ' + currentBroadcast.watchUrl : ''}`;
+    // No live status text under the stream button while streaming (it flashed "Starting / trouble" for the first minute).
+    // Health is still shown in the top bar and the status pill.
+    if ($('streamStatus').textContent) $('streamStatus').textContent = '';
   }
-  updatePills();
+  updatePills(); updateLiveStats();
   if (view !== 'Settings' || settingsPage !== 'status') return;
   const rows = [
     ['Stream running time', streaming ? fmtTime(elapsed) : '-'],
@@ -1745,32 +2322,49 @@ $('btnYtClient').onclick = async () => {
 };
 
 // ---------- Settings ----------
+$('btnCamSave').onclick = saveCam;
 $('btnLogs').onclick = () => window.api.openLogs();
 
 // ---------- start up ----------
+// Each step tells the launcher how far along it is, so its loading window can show a real progress bar.
+const boot = (pct, text) => { try { window.api.bootProgress(pct, text); } catch (e) { /* not started by the launcher */ } };
+function loadCamUI() { // puts the saved Camera & sound settings on the page
+  $('gainRange').value = camDraft.gain; $('gainVal').textContent = (camDraft.gain > 0 ? '+' : '') + camDraft.gain + ' dB';
+  $('vidAudio').value = camDraft.vidAudio; $('capFit').value = camDraft.capFit; $('cropLock').checked = !!camDraft.cropLock;
+  camDraft.crop = cropNorm(camDraft.crop); screenCap.crop = camDraft.crop; screenCap.fit = camDraft.capFit;
+  applyMonitor(); updateCapUI(); updateSaveBar();
+}
 (async () => {
+  boot(30, 'Loading your settings');
   commit();
+  loadCamUI();
   await loadLtLibrary(); // imported pictures must be known before the saved looks are read
   loadLooks();
   buildCardsPage();
   applyTargetSeg(); renderClips(); renderQueue(); updateMediaUI();
-  await initMedia();
   renderBooks(); renderChapters(); renderVerses(); renderSaved();
   applyMute();
   setDock('Bible'); // the Bible page is the default page
-  fitAll();
-  await refreshDevices();
-  const camSaved = saved.cam && [...$('camSel').options].some((o) => o.value === saved.cam);
-  if (camSaved) await startCamera();
-  else if ($('camSel').options.length) { setStatus('camInfo', 'Choose your camera and press Start camera', 'warn'); }
-  await refreshScreens();
+  try { const sl = await window.api.getLayout(); if (['A', 'B', 'C'].includes(sl)) layout = sl; } catch (e) { /* use the browser copy */ }
+  setLayout(layout, true);
+  boot(45, 'Finding the camera and audio');
+  // These do not depend on each other, so they run side by side instead of one after the other.
+  const camJob = (async () => {
+    await refreshDevices();
+    const camSaved = !!camDraft.cam && [...$('camSel').options].some((o) => o.value === camDraft.cam);
+    if (camSaved) { boot(65, 'Starting the camera'); await startCamera(); }
+    else if ($('camSel').options.length) { setStatus('camInfo', 'Choose your camera and press Start camera', 'warn'); }
+    return camSaved;
+  })();
+  const otherJobs = Promise.all([initMedia(), refreshScreens(), refreshYt()]);
+  const camSaved = await camJob;
+  boot(85, 'Checking screens and YouTube');
+  await otherJobs;
   { const nm = await window.api.appName(); if (nm) { document.title = nm; $('brandName').textContent = nm; } } // the name lives in package.json
   { let sd = null; try { sd = localStorage.getItem('recDir'); } catch (e) { /* ignore */ } if (sd) await window.api.setRecDir(sd); showRecDir(); }
   $('btnStream').textContent = startText();
-  await refreshYt();
   updateTitlePreview();
   $('logDir').textContent = 'Logs are saved in: ' + (await window.api.logDir());
-  $('btnFF').click();
   if (await window.api.recovered()) banner('The app restarted after a problem. If you were streaming, press START STREAM to go live again.');
   if (!camSaved) { openSettings('cam'); } // first run: guide the person to choose the camera
   refreshMainUI();
@@ -1778,4 +2372,9 @@ $('btnLogs').onclick = () => window.api.openLogs();
   updateDispUI();
   setInterval(updatePills, 1000);
   log('Ready.');
+  boot(100, 'Ready');
+  window.api.bootLoaded();
+  // Slower jobs wait until the window is up: the encoder check, the media thumbnails, and reconnecting the saved screen.
+  applyCapEnabled(true);
+  setTimeout(() => { $('btnFF').click(); releaseThumbs(); restoreCapture(); }, 600);
 })();

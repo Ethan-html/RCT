@@ -35,8 +35,10 @@ if exist build rmdir /s /q build
   --distpath backend-dist --workpath build ^
   --icon icon.ico ^
   --version-file version-info.txt ^
-  --add-data "index.html;." --add-data "icon.ico;." ^
+  --add-data "index.html;." --add-data "tracker.html;." --add-data "icon.ico;." ^
   --hidden-import keyboard._winkeyboard ^
+  --hidden-import tracker ^
+  --hidden-import cv2 --hidden-import numpy ^
   app.py
 if errorlevel 1 goto :fail
 

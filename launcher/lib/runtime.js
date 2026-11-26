@@ -10,6 +10,8 @@ const http = require('http');
 const path = require('path');
 const store = require('./store');
 const brand = require('./brand');
+const loader = require('./loader');
+const registry = require('../apps.registry.json');
 
 const running = new Map();   // id -> { id, kind: 'proc'|'win', proc, win, port }   apps that are open (as far as the person can see)
 const dying = new Map();     // id -> Promise that resolves when a closed app's program has really exited
@@ -34,8 +36,33 @@ function boundsFor(idx) {
 
 const isRunning = (id) => running.has(id);
 // "Starting" = the program was launched but its window is not on screen yet (the first start after an update can take a while).
-const isStarting = (id) => running.has(id) && !running.get(id).ready;
+const isStarting = (id) => running.has(id) && (!running.get(id).ready || !!running.get(id).loading);
+const loadingOf = (id) => (running.has(id) ? running.get(id).loading || null : null);   // { pct, text } while the app is starting
 function markReady(rec) { if (!rec.ready) { rec.ready = true; hooks.changed(); } }
+
+// ---- the loading window and the progress bar on the app's card ----
+// Both show the same thing: how far the app is, and what it is doing. The app can report its own steps (see main.js of Redcast);
+// an app that does not still gets a bar that moves, and the window closes when the app says it is ready.
+function startLoading(rec, man, bounds) {
+  const reg = registry.find((r) => r.id === rec.id) || {};
+  rec.loading = { pct: 3, text: 'Getting ' + man.name + ' ready' };
+  rec.loader = loader.open({ name: man.name, glyph: reg.glyph, bounds });
+  rec.loader.set(3, rec.loading.text);
+  rec.loadTimer = setTimeout(() => endLoading(rec), 60000);          // never leave it up forever
+  hooks.changed();
+}
+function setLoading(rec, pct, text) {
+  if (!rec.loading) return;
+  rec.loading = { pct: Math.max(rec.loading.pct, Math.min(99, pct)), text: text || rec.loading.text };
+  if (rec.loader) rec.loader.set(rec.loading.pct, rec.loading.text);
+  hooks.changed();
+}
+function endLoading(rec, quick) {
+  if (rec.loadTimer) { clearTimeout(rec.loadTimer); rec.loadTimer = null; }
+  const l = rec.loader; rec.loader = null;
+  if (l) { if (quick) l.close(); else l.finish(); }
+  if (rec.loading) { rec.loading = null; hooks.changed(); }
+}
 const isBusy = (id) => running.has(id) || dying.has(id);   // open, or closed but still shutting down in the background
 const killTree = (p) => {
   try { process.platform === 'win32' ? spawn('taskkill', ['/pid', String(p.pid), '/T', '/F'], { windowsHide: true }) : p.kill(); } catch (e) { /* already gone */ }
@@ -77,8 +104,10 @@ async function launchElectron(rec, dir, man, bounds) {
   delete env.ELECTRON_RUN_AS_NODE;
   // The app's own copy of Electron, named and iconed like the app, so Windows (Firewall prompt, Task Manager) shows
   // "Redcast" and its icon instead of "Electron".
+  setLoading(rec, 8, 'Preparing ' + man.name);
   const exe = await brand.exeFor(rec.id, man.name, man.icon ? path.join(dir, man.icon) : null);
   if (rec.closed) { rec.onStopped && rec.onStopped(); return; }       // closed while the first-time setup above was running
+  setLoading(rec, 18, 'Starting ' + man.name);
   const log = fs.openSync(path.join(store.LOGS, rec.id + '.log'), 'a');
   const args = app.isPackaged ? [] : [app.getAppPath()];   // unpackaged dev run needs the launcher's own folder
   const p = spawn(exe, args, { env, cwd: dir, stdio: ['pipe', 'pipe', log] });
@@ -92,13 +121,19 @@ async function launchElectron(rec, dir, man, bounds) {
     while ((i = buf.indexOf('\n')) >= 0) {
       const line = buf.slice(0, i + 1); buf = buf.slice(i + 1);
       if (line.startsWith('@@RED@@')) {
-        try { if (JSON.parse(line.slice(7)).cmd === 'ready') markReady(rec); } catch (e) { /* ignore */ }
+        try {
+          const m = JSON.parse(line.slice(7));
+          if (m.cmd === 'ready') { markReady(rec); if (!rec.gotProgress) setTimeout(() => endLoading(rec), 600); }   // an app that reports no steps: its window is the finish line
+          else if (m.cmd === 'progress') { rec.gotProgress = true; setLoading(rec, 25 + (Number(m.pct) || 0) * 0.72, m.text); }  // the app's own 0-100 fills the rest of the bar
+          else if (m.cmd === 'loaded') { markReady(rec); endLoading(rec); }
+        } catch (e) { /* ignore */ }
       } else { try { fs.writeSync(log, line); } catch (e) { /* log closed */ } }
     }
   });
   setTimeout(() => markReady(rec), 30000);              // never leave the card on "Starting" forever
+  setLoading(rec, 25, man.name + ' is opening');
   p.stdout.on('error', () => {});
-  const stopped = () => { try { fs.closeSync(log); } catch (e) { /* already closed */ } if (rec.onStopped) rec.onStopped(); gone(rec); };
+  const stopped = () => { try { fs.closeSync(log); } catch (e) { /* already closed */ } endLoading(rec, true); if (rec.onStopped) rec.onStopped(); gone(rec); };
   p.on('error', stopped);
   p.on('exit', stopped);
 }
@@ -109,6 +144,7 @@ async function launchBackend(rec, dir, man, bounds) {
   // Dev mode with no built backend: run the Python source directly (needs the packages in requirements.txt).
   const devPy = store.DEV && !fs.existsSync(exe) && fs.existsSync(path.join(dir, 'app.py'));
   if (!devPy && !fs.existsSync(exe)) throw new Error(man.name + ' is missing its backend program (' + b.exe + ').');
+  setLoading(rec, 10, 'Starting the ' + man.name + ' engine');
   const port = await pickPort(b.port || 8080);
   const dataDir = path.join(app.getPath('appData'), man.dataFolder || man.name);
   fs.mkdirSync(dataDir, { recursive: true });
@@ -120,10 +156,12 @@ async function launchBackend(rec, dir, man, bounds) {
   p.stdout.pipe(log, { end: false }); p.stderr.pipe(log, { end: false });
   rec.kind = 'win'; rec.proc = p; rec.port = port;
   let dead = false;
-  p.on('exit', () => { dead = true; if (rec.win && !rec.win.isDestroyed()) rec.win.destroy(); if (rec.onStopped) rec.onStopped(); gone(rec); });
+  p.on('exit', () => { dead = true; endLoading(rec, true); if (rec.win && !rec.win.isDestroyed()) rec.win.destroy(); if (rec.onStopped) rec.onStopped(); gone(rec); });
   p.on('error', () => { dead = true; if (rec.onStopped) rec.onStopped(); });
+  setLoading(rec, 30, 'Waiting for the engine to answer');
   try { await waitHttp(port, 40000, () => dead); } catch (e) { killTree(p); throw e; }
   if (rec.closed) { killTree(p); return; }            // closed while it was still starting
+  setLoading(rec, 70, 'Opening the window');
 
   const icon = man.icon ? path.join(dir, man.icon) : undefined;
   const win = new BrowserWindow(Object.assign({}, bounds, {
@@ -138,7 +176,7 @@ async function launchBackend(rec, dir, man, bounds) {
   for (const ev of ['resize', 'maximize', 'unmaximize', 'restore', 'enter-full-screen', 'leave-full-screen']) win.on(ev, layout);
   try { win.setAppDetails({ appId: man.appUserModelId || 'com.red.' + rec.id, appIconPath: icon, appIconIndex: 0, relaunchDisplayName: man.name }); } catch (e) { /* taskbar details are cosmetic */ }
   let shown = false;
-  const reveal = () => { if (shown || win.isDestroyed()) return; shown = true; win.show(); win.maximize(); page.webContents.focus(); markReady(rec); };
+  const reveal = () => { if (shown || win.isDestroyed()) return; shown = true; win.show(); win.maximize(); page.webContents.focus(); markReady(rec); endLoading(rec); };
   page.webContents.once('did-finish-load', reveal);
   page.webContents.once('did-fail-load', reveal);
   setTimeout(reveal, 6000);                       // never leave the person waiting on a blank screen
@@ -165,12 +203,12 @@ async function launch(id) {
   const bounds = boundsFor(screenOf(id));
   const rec = { id, kind: null };
   running.set(id, rec);
-  hooks.changed();
+  startLoading(rec, man, bounds);       // the loading window is on screen before anything slow happens
   try {
     if (man.type === 'electron') await launchElectron(rec, dir, man, bounds);
     else if (man.type === 'backend-window') await launchBackend(rec, dir, man, bounds);
     else throw new Error('This app has an unknown type: ' + man.type);
-  } catch (e) { running.delete(id); hooks.changed(); throw e; }
+  } catch (e) { endLoading(rec, true); running.delete(id); hooks.changed(); throw e; }
   hooks.changed();
 }
 
@@ -188,6 +226,7 @@ function close(id) {
   if (!rec) return;
   running.delete(id);
   rec.closed = true;
+  endLoading(rec, true);
   const stopped = new Promise((resolve) => { rec.onStopped = resolve; });
   dying.set(id, stopped);
   stopped.then(() => { if (dying.get(id) === stopped) dying.delete(id); });
@@ -212,4 +251,4 @@ function quitAll() {
 }
 const hasBackendApps = () => [...running.values()].some((r) => r.kind === 'win');
 
-module.exports = { init, displays, screenOf, isRunning, isStarting, isBusy, launch, focus, close, waitStopped, quitAll, hasBackendApps };
+module.exports = { init, displays, screenOf, isRunning, isStarting, loadingOf, isBusy, launch, focus, close, waitStopped, quitAll, hasBackendApps };

@@ -18,6 +18,20 @@ window.addEventListener('resize', render);
 // ----- picture link from the operator window (local, never leaves this PC) -----
 let pc = null;
 let queue = Promise.resolve();
+// Chromium starts a local picture link at a very low bitrate and only slowly climbs, which looks soft and blocky. Ask for a high floor and start so it is sharp straight away.
+function boostSdp(sdp) {
+  const lines = sdp.split('\r\n'), vpt = new Set(), hasFmtp = new Set();
+  lines.forEach((l) => { let m = /^a=rtpmap:(\d+) (VP8|VP9|H264|AV1)\//.exec(l); if (m) vpt.add(m[1]); m = /^a=fmtp:(\d+) /.exec(l); if (m) hasFmtp.add(m[1]); });
+  const x = 'x-google-min-bitrate=8000;x-google-start-bitrate=12000;x-google-max-bitrate=20000', out = [];
+  lines.forEach((l) => {
+    const f = /^a=fmtp:(\d+) /.exec(l);
+    if (f && vpt.has(f[1])) { out.push(l + ';' + x); return; }
+    out.push(l);
+    const r = /^a=rtpmap:(\d+) (VP8|VP9|H264|AV1)\//.exec(l);
+    if (r && !hasFmtp.has(r[1])) out.push(`a=fmtp:${r[1]} ${x}`);
+  });
+  return out.join('\r\n');
+}
 const sig = (m) => window.api.rtcSignal(m);
 function closeLink() { if (pc) { try { pc.close(); } catch (e) { /* ignore */ } pc = null; } vid.srcObject = null; }
 async function handle(m) {
@@ -25,9 +39,13 @@ async function handle(m) {
     closeLink();
     pc = new RTCPeerConnection({ iceServers: [] });
     pc.onicecandidate = (e) => { if (e.candidate) sig({ type: 'ice', candidate: e.candidate.toJSON() }); };
-    pc.ontrack = (e) => { vid.srcObject = e.streams[0] || new MediaStream([e.track]); vid.play().catch(() => {}); };
+    pc.ontrack = (e) => {
+      try { e.receiver.playoutDelayHint = 0; } catch (err) { /* ignore */ } // local link: show frames the moment they arrive
+      vid.srcObject = e.streams[0] || new MediaStream([e.track]); vid.play().catch(() => {});
+    };
     await pc.setRemoteDescription({ type: 'offer', sdp: m.sdp });
     const a = await pc.createAnswer();
+    a.sdp = boostSdp(a.sdp);
     await pc.setLocalDescription(a);
     sig({ type: 'answer', sdp: a.sdp });
   } else if (m.type === 'ice' && pc) {

@@ -10,7 +10,7 @@
 <div id="banner" hidden><span id="bannerText"></span><button id="bannerClose" class="small">Dismiss</button></div>
 
 <header id="topbar">
-  <div class="brandwrap"><svg class="logo" viewBox="0 0 512 512" aria-hidden="true"><rect x="16" y="16" width="480" height="480" rx="112" fill="#141414" stroke="#2e2e2e" stroke-width="4"/><circle cx="256" cy="256" r="52" fill="#ef4b52"/><g fill="none" stroke="#ebebeb" stroke-width="30" stroke-linecap="round"><path d="M164 164A130 130 0 0 0 164 348"/><path d="M348 164A130 130 0 0 1 348 348"/></g><g fill="none" stroke="#ebebeb" stroke-width="26" stroke-linecap="round" opacity=".55"><path d="M108 108A210 210 0 0 0 108 404"/><path d="M404 108A210 210 0 0 1 404 404"/></g></svg><div class="brand" id="brandName">Redcast</div></div>
+  <div class="topleft"><div class="brandwrap"><svg class="logo" viewBox="0 0 512 512" aria-hidden="true"><rect x="16" y="16" width="480" height="480" rx="112" fill="#141414" stroke="#2e2e2e" stroke-width="4"/><circle cx="256" cy="256" r="52" fill="#ef4b52"/><g fill="none" stroke="#ebebeb" stroke-width="30" stroke-linecap="round"><path d="M164 164A130 130 0 0 0 164 348"/><path d="M348 164A130 130 0 0 1 348 348"/></g><g fill="none" stroke="#ebebeb" stroke-width="26" stroke-linecap="round" opacity=".55"><path d="M108 108A210 210 0 0 0 108 404"/><path d="M404 108A210 210 0 0 1 404 404"/></g></svg><div class="brand" id="brandName">Redcast</div><div id="liveStats" hidden></div></div></div>
   <nav id="viewTabs" class="seg">
     <button data-view="Show" class="on" title="Ctrl+1">Show</button>
     <button data-view="TV" title="Ctrl+2">External</button>
@@ -26,8 +26,8 @@
 
 <div id="viewShow" class="view">
 <main id="stage">
-  <section class="col">
-    <div class="canvasbox"><span class="badge"><i class="dot blue"></i>PREVIEW</span><canvas id="previewCanvas" width="960" height="540"></canvas></div>
+  <section class="col" id="colPrev">
+    <div class="canvasbox"><span class="badge"><i class="dot blue"></i>PREVIEW</span><canvas id="previewCanvas" width="960" height="540"></canvas><div class="ztools"><button id="zSend" class="primary">SEND</button><button class="zExit">Exit full view (Esc)</button></div></div>
     <div class="strip">
       <span id="hint"></span>
       <span class="minor">
@@ -39,20 +39,21 @@
   </section>
 
   <aside id="rail">
-    <button id="btnGo" class="send"><span>SEND</span><small>Preview to Output</small></button>
+    <button id="btnGo" title="Ctrl+Enter" class="send"><span>SEND</span><small>Preview to Output</small></button>
     <button id="btnClear">CLEAR ALL</button>
     <button id="btnDisplay" class="disp"><span>EXTERNAL</span><small id="dispNow">Off</small></button>
+    <div class="picsrc" id="picSrcBox"><div class="small">Picture to Preview</div><div class="seg" id="picSeg"><button data-p="camera" class="on">Camera</button><button data-p="screen">Screen</button></div></div>
     <div class="spacer"></div>
     <button id="btnStream" class="stream">START STREAM</button>
     <div id="streamStatus">Not streaming</div>
   </aside>
 
-  <section class="col">
-    <div class="canvasbox"><span class="badge"><i class="dot" id="outDot"></i><span id="liveBadge">OUTPUT</span></span><canvas id="liveCanvas" width="1920" height="1080"></canvas></div>
+  <section class="col" id="colOut">
+    <div class="canvasbox"><span class="badge"><i class="dot" id="outDot"></i><span id="liveBadge">OUTPUT</span></span><canvas id="liveCanvas" width="1920" height="1080" tabindex="0"></canvas><div class="ztools"><button class="zExit">Exit full view (Esc)</button></div></div>
     <div class="strip">
       <span class="onscreen"><span class="sub">On screen</span><span id="onnow" class="chips"></span></span>
       <span class="audiobox">
-        <span class="meters" title="Output audio"><span class="mbar"><i id="mL"></i></span><span class="mbar"><i id="mR"></i></span></span>
+        <span class="meters" title="Output audio: keep the loudest parts in the yellow, out of the red"><span class="mbar"><i id="mL"></i><b class="pk" id="pkL"></b></span><span class="mbar"><i id="mR"></i><b class="pk" id="pkR"></b></span></span>
         <button id="btnTech" class="tech" title="Shows the Please stand by screen and cuts the audio">Tech error</button>
       </span>
     </div>
@@ -64,6 +65,7 @@
     <button data-tab="Bible">Bible</button>
     <button data-tab="Media">Videos &amp; Photos</button>
     <button data-tab="Lower">Lower Thirds</button>
+    <button data-tab="Web">Web page</button>
   </nav>
   <div id="dockPanel">
     <div class="dockpane" id="paneBible" hidden>
@@ -110,10 +112,11 @@
               <div class="seg tseg" id="targetSeg"><button data-t="stream">Stream</button><button data-t="tv">External</button><button data-t="both">Both</button></div>
               <div class="row"><button id="cPlay" class="primary wide">Play</button><button id="cStop">Stop</button><button id="cQueueAdd">+ Queue</button></div>
               <div class="row"><input type="range" id="cSeek" min="0" max="1000" value="0"><span id="cTime" class="small">0:00 / 0:00</span></div>
-              <label class="check"><input type="checkbox" id="cLoop"> Loop this video</label>
+              <div class="checks"><label class="check"><input type="checkbox" id="cLoop"> Loop this video</label>
+              <label class="check"><input type="checkbox" id="vidSpeakersQuick"> Also play its sound on this computer</label></div>
               <div class="two">
-                <div><label>When it ends: External</label><select id="endTv"><option value="black">Go to black</option><option value="hold">Hold last frame</option></select></div>
-                <div><label>When it ends: Stream</label><select id="endStream"><option value="camera">Back to the camera</option><option value="hold">Hold last frame</option></select></div>
+                <div><label>When it ends: External</label><select id="endTv"><option value="black">Go to black</option><option value="hold">Hold last frame</option><option value="back">Go back to what was before</option></select></div>
+                <div><label>When it ends: Stream</label><select id="endStream"><option value="camera">Back to camera or screen</option><option value="hold">Hold last frame</option></select></div>
               </div>
             </div>
             <div id="playPhoto" hidden>
@@ -132,6 +135,29 @@
         </div>
       </div>
     </div>
+    <div class="dockpane" id="paneWeb" hidden>
+      <div class="webwrap">
+        <div class="bcol">
+          <div class="bhead"><span>Web page</span><span id="webState" class="qinfo"></span></div>
+          <div class="cplay">
+            <div class="row nomt"><input type="text" id="webUrl" placeholder="Paste a web address (https://...)" spellcheck="false"><button id="webLoad" class="primary">Load</button></div>
+            <div class="row"><button id="webBack">Back</button><button id="webReload">Reload</button><button id="webClose">Close page</button></div>
+            <div class="row"><div class="seg tseg" id="webTargetSeg"><button data-t="stream" class="on">Stream</button><button data-t="tv">External</button><button data-t="both">Both</button></div></div>
+            <div class="row"><button id="webShow" class="primary wide">Show it</button><button id="webStop">Take it off</button></div>
+            <div class="small">When it is on the Output, click, scroll and type right on the Output picture. Double-click it to make it bigger. Your mouse is never in what people see.</div>
+          </div>
+        </div>
+        <div class="bcol" id="webSlideBox" hidden>
+          <div class="bhead"><span>Slideshow</span></div>
+          <div class="cplay">
+            <div class="row nomt"><button id="webPrev" class="wide">&#9664; Previous slide</button><button id="webNext" class="wide">Next slide &#9654;</button></div>
+            <label>Move on by itself</label>
+            <select id="webAuto"><option value="0">Off</option><option value="5">Every 5 seconds</option><option value="10">Every 10 seconds</option><option value="15">Every 15 seconds</option><option value="30">Every 30 seconds</option><option value="60">Every minute</option></select>
+            <div class="small">A private deck needs you to sign in once: click the Output picture. It is remembered.</div>
+          </div>
+        </div>
+      </div>
+    </div>
     <div class="dockpane" id="paneLower" hidden>
       <div class="lowerwrap4">
         <div class="bcol">
@@ -145,11 +171,17 @@
               <button class="qcard" data-card="follow"><b>Follow us</b><small>Animated, with your names</small></button>
               <button class="qcard" data-card="give" id="qcGive" hidden><b>Give (QR)</b><small>QR code and link</small></button>
             </div>
-            <label>Your own message</label>
-            <div class="two"><input type="text" id="msgA" placeholder="Big line"><input type="text" id="msgB" placeholder="Small line (optional)"></div>
-            <div class="row"><select id="msgType"><option value="full">As a full lower third</option><option value="slide">As a slide-in</option></select><button id="btnMsgAdd" class="primary">Show message</button></div>
-            <label class="check"><input type="checkbox" id="cardDirect"> One tap puts it straight on the Output</label>
-            <div class="small">Applies to everything on this tab. Only one lower third is on the screen at a time.</div>
+          </div>
+        </div>
+        <div class="bcol">
+          <div class="bhead"><span>Your own message</span></div>
+          <div class="cplay msgbox">
+            <div class="two">
+              <div><label class="first">Big line</label><input type="text" id="msgA" placeholder="Big line"></div>
+              <div><label class="first">Small line (optional)</label><input type="text" id="msgB" placeholder="Small line (optional)"></div>
+            </div>
+            <div class="row"><select id="msgType" title="How it appears"><option value="full">A full lower third</option><option value="slide">A slide-in</option></select><button id="btnMsgAdd" class="primary">Show message</button></div>
+            <label class="check" title="Applies to everything on this tab. Only one lower third is on the screen at a time."><input type="checkbox" id="cardDirect"> One tap puts it straight on the Output</label>
           </div>
         </div>
       </div>
@@ -161,32 +193,49 @@
 <!-- EXTERNAL: any number of monitors, each showing its own thing -->
 <div id="viewTV" class="view page" hidden>
   <div class="pagemain">
-    <div class="stagebox"><span class="badge"><i class="dot" id="tvDot"></i>SELECTED SCREEN</span><canvas id="dispCanvas" width="960" height="540"></canvas></div>
+    <div class="stagebox"><span class="badge"><i class="dot" id="tvDot"></i><span id="tvBadge">SELECTED SCREEN</span></span><canvas id="dispCanvas" width="1280" height="720" tabindex="0"></canvas></div>
     <div class="pagenote" id="tvNote"></div>
+    <div class="tvshelf">
+      <div class="bhead"><span>Pick a video or photo</span><span id="tvPickName" class="qinfo"></span><button id="tvClipAdd" class="small primary">Add files...</button></div>
+      <div id="tvClipList" class="scroll cliptiles tvtiles"></div>
+    </div>
   </div>
   <aside class="inspector">
+    <div class="tvtarget" id="tvTarget" hidden><small>You are changing</small><b id="tvTargetName">No screen</b><span id="tvTargetState">Off</span></div>
     <div class="isec">
-      <div class="ilabel">Screens</div>
+      <div class="ilabel">Pick the screen to change</div>
       <div id="screenList" class="screenlist"></div>
       <div class="row"><button id="btnScreensManage" class="small">Rename or hide screens...</button></div>
     </div>
     <div class="isec">
-      <div class="ilabel">Show on the selected screen</div>
+      <div class="ilabel">Choose what it shows</div>
       <div class="srcs">
         <button data-src="live"><b>Output</b><small>What viewers see on the stream</small></button>
         <button data-src="preview"><b>Preview</b><small>Your next look</small></button>
-        <button data-src="media"><b>Video or photo</b><small>The one picked in Videos &amp; Photos</small></button>
+        <button data-src="media"><b>Video or photo</b><small>The one picked in the list on the left</small></button>
+        <button data-src="web"><b>Web page</b><small>A web address you can click, scroll and type in</small></button>
         <button data-src="pattern"><b>Test pattern</b><small>Colour bars</small></button>
         <button data-src="black"><b>Black</b><small>Blank screen</small></button>
       </div>
+      <div id="tvWebBox" hidden>
+        <label class="first">Web address</label>
+        <input type="text" id="tvWebUrl" placeholder="https://..." spellcheck="false">
+        <div class="row"><button id="tvWebLoad" class="primary">Load</button><button id="tvWebBack">Back</button><button id="tvWebReload">Reload</button></div>
+        <div id="tvSlideBox" hidden>
+          <div class="row"><button id="tvWebPrev">&#9664; Previous slide</button><button id="tvWebNext">Next slide &#9654;</button></div>
+          <label>Move on by itself</label><select id="tvWebAuto"><option value="0">Off</option><option value="5">Every 5 seconds</option><option value="10">Every 10 seconds</option><option value="15">Every 15 seconds</option><option value="30">Every 30 seconds</option><option value="60">Every minute</option></select>
+        </div>
+        <div class="small" id="tvWebState"></div>
+      </div>
     </div>
     <div class="isec">
-      <button id="btnDispSend" class="send"><span>SEND TO SCREEN</span><small id="dispSendSub">Nothing chosen</small></button>
+      <div class="ilabel">Send it</div>
+      <button id="btnDispSend" class="send"><span id="dispSendMain">SEND TO SCREEN</span><small id="dispSendSub">Nothing chosen</small></button>
       <div id="vidCtl" class="row" hidden>
         <button id="btnDispPlay" class="primary">Play here</button><button id="btnDispRestart">Restart</button>
         <input type="range" id="dispSeek" min="0" max="1000" value="0"><span id="dispTime" class="small">0:00 / 0:00</span>
       </div>
-      <label class="check"><input type="checkbox" id="screenAudio" checked> Play video sound on this screen</label>
+      <label class="check"><input type="checkbox" id="screenAudio" checked> <span id="screenAudioLbl">Play video sound on this screen</span></label>
       <div class="small">Turn the sound off for screens whose speakers are tied to the sound board.</div>
     </div>
   </aside>
@@ -197,6 +246,32 @@
   <div class="pagemain settings">
     <div class="engstrip"><span class="sub">Live</span><span id="engLive" class="chips"></span><span class="sub">Preview</span><span id="engPrev" class="chips"></span></div>
     <div class="spages">
+<section class="spage" data-page="layout" hidden><h2 class="ptitle">Window layout</h2>
+      <div class="psub">Choose how the Show page is arranged. It is remembered.</div>
+      <div class="layopts">
+        <button class="layopt" data-lay="A"><svg viewBox="0 0 120 76" aria-hidden="true"><rect x="4" y="4" width="54" height="30" rx="3"/><rect x="62" y="4" width="54" height="30" rx="3"/><rect x="4" y="38" width="112" height="34" rx="3"/></svg><b>Standard</b><small>Preview and Output side by side on top, the tabs underneath.</small></button>
+        <button class="layopt" data-lay="B"><svg viewBox="0 0 120 76" aria-hidden="true"><rect x="4" y="12" width="84" height="52" rx="3"/><rect x="92" y="12" width="24" height="52" rx="3"/></svg><b>Livestream only</b><small>Just the Output and the stream buttons. No Preview and no tabs. External screens still work, and you can add videos and photos from the External page.</small></button>
+        <button class="layopt" data-lay="C"><svg viewBox="0 0 120 76" aria-hidden="true"><rect x="4" y="4" width="44" height="25" rx="3"/><rect x="4" y="32" width="44" height="10" rx="3"/><rect x="4" y="45" width="44" height="25" rx="3"/><rect x="52" y="4" width="64" height="66" rx="3"/></svg><b>Stacked</b><small>Preview above the Output on the left with SEND between them, and the tabs on the right.</small></button>
+      </div></section>
+<section class="spage" data-page="keys" hidden><h2 class="ptitle">Keyboard shortcuts</h2>
+      <div class="psub">These work on the matching page. They are ignored while you are typing in a box, except Send.</div>
+      <div class="keycols">
+        <div class="keycard"><h3>Going live</h3>
+          <div class="krow"><span><kbd>Ctrl</kbd> <kbd>Enter</kbd></span><b>SEND</b><i>Preview to Output on the Show page, or to the chosen screen on the External page</i></div>
+          <div class="krow"><span><kbd>Ctrl</kbd> <kbd>Backspace</kbd></span><b>CLEAR ALL</b><i>Show page</i></div>
+          <div class="krow"><span><kbd>Ctrl</kbd> <kbd>Shift</kbd> <kbd>L</kbd></span><b>Start or stop the stream</b><i>It still asks before stopping</i></div>
+        </div>
+        <div class="keycard"><h3>Moving around</h3>
+          <div class="krow"><span><kbd>Ctrl</kbd> <kbd>1</kbd> / <kbd>2</kbd> / <kbd>3</kbd></span><b>Show, External, Settings</b><i></i></div>
+          <div class="krow"><span><kbd>&larr;</kbd> <kbd>&rarr;</kbd></span><b>Previous or next</b><i>Verse on the Bible tab, video on the Videos tab, slide on the Web page tab (Google Slides)</i></div>
+          <div class="krow"><span><kbd>Esc</kbd></span><b>Close the big Output view</b><i></i></div>
+        </div>
+        <div class="keycard"><h3>Editing the Preview</h3>
+          <div class="krow"><span><kbd>Ctrl</kbd> <kbd>Z</kbd> / <kbd>Y</kbd></span><b>Undo and redo</b><i></i></div>
+          <div class="krow"><span><kbd>Delete</kbd></span><b>Remove the selected box</b><i></i></div>
+          <div class="krow"><span><kbd>Alt</kbd> + arrows</span><b>Move the selected box a little</b><i>Hold Shift to move it further</i></div>
+        </div>
+      </div></section>
 <section class="spage" data-page="lower" hidden><h2 class="ptitle">Slide-in lower third (names)</h2>
       <div class="lookgrid">
         <div class="lookleft"><div class="stagebox"><span class="badge"><i class="dot blue"></i>SAMPLE</span><canvas id="lsSample" width="800" height="450"></canvas></div>
@@ -209,7 +284,7 @@
           <div class="pagenote" id="qcKinds"></div></div>
         <div class="lookctl" id="qcSampleControls"></div>
       </div></section>
-<section class="spage" data-page="media" hidden><h2 class="ptitle">Media folder</h2>
+<section class="spage" data-page="media" hidden><h2 class="ptitle">Photos &amp; videos</h2>
       <div class="psub">Pick one folder. Every photo and video in it shows up on the Videos &amp; Photos shelf by itself.</div>
       <div class="cards one"><div class="card">
         <h3>Photos and videos folder</h3>
@@ -231,7 +306,7 @@
         <div class="small">The colours, shape, size and animation of the QR card are set with the other full lower thirds.</div>
         <div class="row"><button id="btnQrLook">Change how the QR card looks...</button></div>
       </div></div></section>
-<section class="spage" data-page="screens" hidden><h2 class="ptitle">Screens</h2>
+<section class="spage" data-page="screens" hidden><h2 class="ptitle">Extra screens</h2>
       <div class="psub">Give each monitor a name you will recognise, and hide the ones you never use.</div>
       <div class="cards one"><div class="card">
         <h3>Monitors found</h3>
@@ -239,19 +314,55 @@
         <div class="row"><button id="btnScreensRefresh">Refresh</button></div>
         <div class="small">A hidden screen is not shown on the External page and cannot be used until you show it again here.</div>
       </div></div></section>
-<section class="spage" data-page="cam" hidden><h2 class="ptitle">Camera &amp; sound</h2><div class="cards"><div class="card">
+<section class="spage" data-page="cam" hidden><h2 class="ptitle">Camera &amp; sound</h2><div class="cards">
+        <div class="card">
           <h3>Camera and audio</h3>
-          <label>Camera (capture card)</label><select id="camSel"></select>
+          <label class="first">Camera (capture card)</label><select id="camSel"></select>
           <label>Audio source</label><select id="audSel"></select>
           <div class="row"><button id="btnRefresh">Refresh</button><button id="btnCam" class="primary">Start camera</button></div>
           <div class="status" id="camInfo">Camera not started</div>
-          <div class="meter"><div id="meterBar"></div></div>
+        </div>
+        <div class="card">
+          <h3>Microphone level</h3>
+          <div class="lvl"><div class="lvlbar"><i id="meterBar"></i><b class="pk" id="meterPk"></b><span class="tick" id="meterTick"></span></div>
+            <div class="lvlscale"><span>-60</span><span>-40</span><span id="lvlY">-20</span><span id="lvlR">-9</span><span>0 dB</span></div></div>
           <div class="small" id="meterDb">Audio level: -</div>
-        </div><div class="card"><h3>Sound when a video plays on the stream</h3>
-  <label class="first">Which sound do viewers hear?</label>
-  <select id="vidAudio"><option value="video">The video's own sound (the microphone is muted while it plays)</option><option value="device">The selected audio device only (the video's sound is not sent)</option><option value="both">Both together</option></select>
-  <div class="small">The audio device is the one chosen under Camera &amp; audio, such as the mixer. A video playing on an external screen uses the video's own sound there (each screen has its own sound switch on the External page).</div></div></div></section>
-<section class="spage" data-page="stream" hidden><h2 class="ptitle">Stream &amp; recording</h2><div class="cards"><div class="card">
+          <div class="small">Green is quiet, <b>yellow is where speech should sit</b>, red is too loud. The white mark is the level the smart set aims for.</div>
+          <label>Input volume (gain): <b id="gainVal">0 dB</b></label>
+          <input type="range" id="gainRange" min="-20" max="30" step="0.5" value="0">
+          <div class="row"><button id="btnGainReset">Reset to 0 dB</button><button id="btnSmart" class="primary">Smart set (listen 8 seconds)</button></div>
+          <div class="small" id="smartInfo">Smart set listens while the speaker talks normally, picks one gain and keeps it. It never changes by itself afterwards.</div>
+        </div>
+        <div class="card" id="capCard">
+          <h3>Screen capture</h3>
+          <label class="check"><input type="checkbox" id="capEnable" checked> Use screen capture</label>
+          <div class="small" id="capOffNote">Off. The Camera / Screen buttons are hidden on the Show page. Turn this on to show a window or monitor instead of the camera.</div>
+          <div id="capBody">
+          <div class="small">Show a window or a whole monitor as the main picture, instead of the camera. Use the Screen button on the Show page to put it in Preview.</div>
+          <div class="status" id="capInfo">No screen or window chosen</div>
+          <div class="row"><button id="btnCapChoose" class="primary">Choose window or monitor...</button><button id="btnCapStop">Stop capture</button><button id="btnCapPreview">Show in Preview</button></div>
+          <label>Crop: drag the edges or corners of the box</label>
+          <canvas id="cropCanvas" width="640" height="360"></canvas>
+          <div class="row"><button id="btnCropReset">Reset crop</button><label class="check"><input type="checkbox" id="cropLock"> Keep the box 16:9</label></div>
+          <label>If the cropped part is not 16:9</label>
+          <select id="capFit"><option value="fit">Fit it inside (black bars)</option><option value="fill">Fill the screen (cuts the edges)</option></select>
+          </div>
+        </div>
+        <div class="card"><h3>Sound when a video plays on the stream</h3>
+          <label class="first">Which sound do viewers hear?</label>
+          <select id="vidAudio"><option value="video">The video's own sound (the microphone is muted while it plays)</option><option value="device">The selected audio device only (the video's sound is not sent)</option><option value="both">Both together</option></select>
+          <div class="small">The audio device is the one chosen under Camera &amp; audio, such as the mixer. A video playing on an external screen uses the video's own sound there (each screen has its own sound switch on the External page).</div>
+        </div>
+        <div class="card"><h3>Video sound on this computer</h3>
+          <label class="check"><input type="checkbox" id="vidSpeakers"> Also play video sound on this computer's speakers</label>
+          <label>Play it through</label><select id="spkSel"></select>
+          <label>Speaker volume: <b id="spkVolVal">100%</b></label>
+          <input type="range" id="spkVol" min="0" max="100" step="1" value="100">
+          <div class="small">This is only for the people in the room. It never goes to the stream. The microphone is not sent to the speakers, so there is no echo from it.</div>
+        </div>
+      </div>
+      <div class="savebar"><button id="btnCamSave" class="primary">Save</button><span id="camSaveInfo" class="small">Nothing changed</span></div></section>
+<section class="spage" data-page="stream" hidden><h2 class="ptitle">Going live</h2><div class="cards"><div class="card">
           <h3>When you press Start</h3>
           <label class="first">What should happen?</label>
           <select id="outMode"><option value="both">Stream, and save a backup recording</option><option value="stream">Stream only</option><option value="record">Record only (nothing goes to the internet)</option></select>
@@ -274,28 +385,28 @@
           <select id="ytLatency"><option value="low">Low (recommended)</option><option value="normal">Normal</option><option value="ultraLow">Ultra low</option></select>
           <label class="check"><input type="checkbox" id="ytDvr" checked> Let viewers rewind (DVR)</label>
           <div class="small">Use {date} {longdate} {shortdate} {weekday} {month} {day} {year} {time} {service} in the title or description. Each time you start a stream, a new YouTube broadcast is created from this template.</div>
-        </div><div class="card" id="ytSetupCard">
-          <h3>YouTube connection (one-time)</h3>
+        </div><div class="card adv" id="ytSetupCard">
+          <h3>YouTube connection (one-time setup)</h3>
           <div class="small">Create a Google client ID once (see YOUTUBE-SETUP.md), paste it here, then use Sign in with YouTube above. After you connect, this is saved safely and this box goes away.</div>
           <label>Google client ID</label><input type="text" id="ytClientId">
           <label>Google client secret</label><input type="password" id="ytClientSecret" placeholder="Saved securely. Leave blank to keep it.">
           <div class="row"><button id="btnYtClient" class="primary">Save</button></div>
           <div class="small" id="ytClientInfo"></div>
-        </div><div class="card" id="destCard">
-          <h3>Stream destination</h3>
+        </div><div class="card adv" id="destCard">
+          <h3>Stream destination (advanced)</h3>
           <label>Where the stream goes</label>
           <select id="destMode"><option value="auto">Automatic (YouTube if signed in)</option><option value="rtmp">Manual stream URL and key</option><option value="file">Test file on this PC (not live)</option></select>
           <label>Manual stream URL</label><input type="text" id="url" value="rtmp://a.rtmp.youtube.com/live2">
           <label>Manual stream key (private)</label><input type="password" id="key">
-        </div><div class="card">
-          <h3>Video quality</h3>
+        </div><div class="card adv">
+          <h3>Video quality (advanced)</h3>
           <label>Encoder (auto-detected)</label><select id="encoder"><option value="libx264">Checking...</option></select>
           <label>Bitrate (kbps)</label><input type="number" id="bitrate" value="6000">
           <label>Frame rate</label><select id="fps"><option>30</option><option>60</option></select>
           <div class="row"><button id="btnFF">Re-check this PC</button></div>
           <div class="small" id="ffInfo"></div>
         </div></div></section>
-<section class="spage" data-page="status" hidden><h2 class="ptitle">Status</h2><div class="cards one"><div class="card">
+<section class="spage" data-page="status" hidden><h2 class="ptitle">Troubleshooting</h2><div class="cards one"><div class="card">
           <h3>Diagnostics</h3>
           <label class="check"><input type="checkbox" id="testClock"> Show a test clock on the Live picture</label>
           <table class="stats" id="stats"></table>
@@ -310,13 +421,15 @@
     <button data-page="cards">Full lower thirds</button>
     <button data-page="lower">Slide-in (names)</button>
     <div class="navgroup">Setup</div>
+    <button data-page="layout">Window layout</button>
+    <button data-page="keys">Keyboard shortcuts</button>
     <button data-page="cam">Camera &amp; sound</button>
-    <button data-page="stream">Stream &amp; recording</button>
-    <button data-page="media">Media folder</button>
+    <button data-page="stream">Going live</button>
+    <button data-page="media">Photos &amp; videos</button>
     <button data-page="qr">QR code</button>
-    <button data-page="screens">Screens</button>
-    <div class="navgroup">Engineer</div>
-    <button data-page="status">Status &amp; log</button>
+    <button data-page="screens">Extra screens</button>
+    <div class="navgroup">Help</div>
+    <button data-page="status">Troubleshooting</button>
   </aside>
 </div>
 
@@ -327,6 +440,7 @@
 
 <script src="qr.js"></script>
 <script src="looks.js"></script>
+<script src="pure.js"></script>
 <script src="scene.js"></script>
 <script src="app.js"></script>
 </body>

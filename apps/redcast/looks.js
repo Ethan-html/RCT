@@ -19,14 +19,22 @@ const PRESETS = [
   { id: 'gradient', name: 'Fade out', radius: 0 }, { id: 'wave', name: 'Wave', radius: 0 },
   { id: 'bokeh', name: 'Lights', radius: 0 }, { id: 'stripes', name: 'Pinstripes', radius: 0 },
   { id: 'minimal', name: 'Minimal', radius: 0 },
+  { id: 'chevron', name: 'Chevrons', radius: 0 }, { id: 'duoline', name: 'Double line', radius: 0 },
+  { id: 'cross', name: 'Cross', radius: 0 }, { id: 'spotlight', name: 'Spotlight', radius: 0 },
+  { id: 'sunrise', name: 'Sunrise', radius: 0 }, { id: 'dots', name: 'Dots', radius: 0 },
+  { id: 'duotone', name: 'Two tone', radius: 0 },
 ];
 // ----- slide-in plates: small designs made for a name and a title -----
 const NAME_PRESETS = [
   { id: 'plate', name: 'Plate' }, { id: 'duo', name: 'Two blocks' }, { id: 'bar2', name: 'Bar and strip' },
   { id: 'tag', name: 'Tag' }, { id: 'underline', name: 'Underline' }, { id: 'pill', name: 'Pill' },
   { id: 'slant', name: 'Slanted' }, { id: 'glassplate', name: 'Glass' }, { id: 'solidplate', name: 'Solid' }, { id: 'box', name: 'Box' },
+  { id: 'arrow', name: 'Arrow' }, { id: 'ticket', name: 'Ticket' }, { id: 'flag', name: 'Flag' }, { id: 'bracket', name: 'Corner brackets' },
+  { id: 'sideline', name: 'Side line' }, { id: 'fadebar', name: 'Fading bar' }, { id: 'dframe', name: 'Double frame' },
 ];
 const isPlate = (p) => NAME_PRESETS.some((x) => x.id === p);
+// Each slide-in shape has its own natural way of arriving. Picking a design or a shape uses it (it can still be changed after).
+const SHAPE_ANIM = { plate: 'slide', duo: 'blocks', bar2: 'unfold', tag: 'rise', underline: 'line', pill: 'pop', slant: 'diag', glassplate: 'fade', solidplate: 'flip', box: 'flicker', arrow: 'slide', ticket: 'zoomout', flag: 'wipe', bracket: 'focus', sideline: 'spring', fadebar: 'wipe', dframe: 'blinds' };
 
 // Ready-made picture backgrounds (full-width strips). Uploaded ones are added to this list by app.js.
 const BUILTIN_BGS = [
@@ -61,7 +69,7 @@ const bandHeight = (e) => Math.round(1920 * e.h / e.w); // how tall a full-width
 
 // ----- the design library: a name, a group, and everything that makes it look that way -----
 const LIGHT = { nameColor: '#14161a', textColor: '#14161a', titleColor: '#4a5266' };
-const DK = { nameColor: '#ffffff', textColor: '#ffffff', titleColor: '#d6dbe6' };
+const DK = { nameColor: '#ffffff', textColor: '#ffffff', titleColor: '#d6dbe6', shadow: false };
 const DES = (id, name, group, s) => ({ id, name, group, s: Object.assign({}, DK, s) });
 const DESIGNS_FULL = [
   DES('navy-bar', 'Navy bar', 'Classic', { preset: 'classic', bg: '#0a1e50', opacity: 92, accent: '#f5b800', font: 'Georgia', titleColor: '#e9dcae', refColor: '#f5b800', anim: 'fade' }),
@@ -86,6 +94,20 @@ const DESIGNS_FULL = [
   DES('card-white', 'White card', 'Glass and light', Object.assign({ preset: 'card', bg: '#ffffff', opacity: 96, accent: '#2f6bff', refColor: '#2f6bff', anim: 'zoom' }, LIGHT)),
   DES('wave-blue', 'Blue wave', 'Textured', { preset: 'wave', bg: '#0a2a5c', opacity: 95, accent: '#3fb6ff', refColor: '#7fd0ff', anim: 'rise' }),
   DES('wave-sunset', 'Sunset wave', 'Textured', { preset: 'wave', bg: '#5a1230', opacity: 95, accent: '#ff9f43', refColor: '#ffb86b', titleColor: '#ffd9b0', anim: 'bounce' }),
+  DES('chevron-red', 'Red chevrons', 'Modern', { preset: 'chevron', bg: '#14161a', opacity: 94, accent: '#e63946', refColor: '#ff8a93', anim: 'slide' }),
+  DES('chevron-gold', 'Gold chevrons', 'Modern', { preset: 'chevron', bg: '#10203f', opacity: 94, accent: '#f5b800', refColor: '#f5b800', anim: 'wipe' }),
+  DES('duotone-blue', 'Two tone blue', 'Modern', { preset: 'duotone', bg: '#0b1f4d', opacity: 95, accent: '#2f6bff', refColor: '#8fb3ff', anim: 'rise' }),
+  DES('duotone-plum', 'Two tone plum', 'Modern', { preset: 'duotone', bg: '#2a0f3a', opacity: 95, accent: '#e0467c', refColor: '#ff9cc0', anim: 'fade' }),
+  DES('spot-slate', 'Spotlight', 'Modern', { preset: 'spotlight', bg: '#12161d', opacity: 95, accent: '#6aa8ff', refColor: '#9cc4ff', anim: 'fade' }),
+  DES('duoline-navy', 'Navy double line', 'Classic', { preset: 'duoline', bg: '#0a1a3f', opacity: 94, accent: '#d4af37', font: 'Georgia', titleColor: '#e8dcb0', refColor: '#d4af37', anim: 'fade' }),
+  DES('duoline-black', 'Black double line', 'Classic', { preset: 'duoline', bg: '#0c0c0e', opacity: 94, accent: '#ffffff', refColor: '#d8d8d8', anim: 'wipe' }),
+  DES('cross-navy', 'Cross navy', 'Church', { preset: 'cross', bg: '#0a1e50', opacity: 94, accent: '#f5b800', font: 'Georgia', titleColor: '#e9dcae', refColor: '#f5b800', anim: 'fade' }),
+  DES('cross-burgundy', 'Cross burgundy', 'Church', { preset: 'cross', bg: '#4a0f1c', opacity: 94, accent: '#e8c46a', font: 'Georgia', titleColor: '#f0d9b0', refColor: '#e8c46a', anim: 'rise' }),
+  DES('cross-light', 'Cross light', 'Church', Object.assign({ preset: 'cross', bg: '#f6f1e6', opacity: 97, accent: '#a67c1a', font: 'Georgia', refColor: '#8a6410', anim: 'fade' }, LIGHT)),
+  DES('sunrise-gold', 'Sunrise', 'Church', { preset: 'sunrise', bg: '#1c2150', opacity: 95, accent: '#ffb347', refColor: '#ffc978', titleColor: '#ffe6c2', anim: 'rise' }),
+  DES('sunrise-rose', 'Rose sunrise', 'Church', { preset: 'sunrise', bg: '#3a1230', opacity: 95, accent: '#ff7a8a', refColor: '#ffa8b3', titleColor: '#ffd9de', anim: 'fade' }),
+  DES('dots-teal', 'Teal dots', 'Textured', { preset: 'dots', bg: '#0b2630', opacity: 95, accent: '#18c7b0', refColor: '#5fe0cf', anim: 'slide' }),
+  DES('dots-charcoal', 'Charcoal dots', 'Textured', { preset: 'dots', bg: '#1a1c20', opacity: 95, accent: '#f5b800', refColor: '#f5b800', anim: 'unfold' }),
   DES('bokeh-night', 'Night lights', 'Textured', { preset: 'bokeh', bg: '#0b0b1f', opacity: 95, accent: '#9d7bff', refColor: '#b9a2ff', anim: 'fade' }),
   DES('stripes-charcoal', 'Pinstripes', 'Textured', { preset: 'stripes', bg: '#1a1c20', opacity: 95, accent: '#f5b800', refColor: '#f5b800', anim: 'slide' }),
   DES('minimal-white', 'Minimal', 'Minimal', { preset: 'minimal', accent: '#ffffff', shadow: true, refColor: '#ffffff', anim: 'fade' }),
@@ -95,17 +117,36 @@ const DESIGNS_NAME = [
   DES('plate-navy', 'Navy plate', 'Plates', { preset: 'plate', bg: '#0a1e50', opacity: 92, accent: '#f5b800', anim: 'slide' }),
   DES('plate-charcoal', 'Charcoal plate', 'Plates', { preset: 'plate', bg: '#1b1b1d', opacity: 94, accent: '#ffffff', anim: 'wipe' }),
   DES('plate-light', 'Light plate', 'Plates', Object.assign({ preset: 'plate', bg: '#f4f5f8', opacity: 96, accent: '#2f6bff', anim: 'curtain' }, LIGHT)),
-  DES('duo-red', 'Red two blocks', 'Two lines', { preset: 'duo', bg: '#141414', opacity: 94, accent: '#d7263d', titleColor: '#e8e8e8', anim: 'slideR' }),
+  DES('duo-red', 'Red two blocks', 'Two lines', { preset: 'duo', bg: '#141414', opacity: 94, accent: '#d7263d', titleColor: '#e8e8e8', anim: 'blocks', animMs: 700 }),
   DES('duo-blue', 'Blue two blocks', 'Two lines', { preset: 'duo', bg: '#0f1d3a', opacity: 94, accent: '#2f6bff', titleColor: '#cfd9f2', anim: 'drop' }),
   DES('bar2-gold', 'Gold strip', 'Two lines', { preset: 'bar2', bg: '#14141a', opacity: 94, accent: '#d4af37', titleColor: '#1a1405', anim: 'unfold' }),
   DES('tag-orange', 'Orange tag', 'Two lines', { preset: 'tag', bg: '#121820', opacity: 94, accent: '#ff7a1a', titleColor: '#1a0d00', anim: 'rise' }),
-  DES('slant-teal', 'Slanted teal', 'Modern', { preset: 'slant', bg: '#0b1f2a', opacity: 94, accent: '#18c7b0', anim: 'tilt' }),
-  DES('pill-dark', 'Dark pill', 'Modern', { preset: 'pill', bg: '#101216', opacity: 92, accent: '#f5b800', anim: 'zoom' }),
+  DES('slant-teal', 'Slanted teal', 'Modern', { preset: 'slant', bg: '#0b1f2a', opacity: 94, accent: '#18c7b0', anim: 'diag', animMs: 650 }),
+  DES('pill-dark', 'Dark pill', 'Modern', { preset: 'pill', bg: '#101216', opacity: 92, accent: '#f5b800', anim: 'pop', animMs: 650 }),
   DES('pill-light', 'Light pill', 'Modern', Object.assign({ preset: 'pill', bg: '#ffffff', opacity: 96, accent: '#2f6bff', anim: 'bounce' }, LIGHT)),
   DES('glass-white', 'Glass plate', 'Modern', { preset: 'glassplate', bg: '#1c4fa0', opacity: 70, accent: '#ffffff', shadow: true, anim: 'fade' }),
   DES('solid-yellow-plate', 'Yellow plate', 'Bold', { preset: 'solidplate', bg: '#ffd400', opacity: 100, accent: '#111111', nameColor: '#111111', titleColor: '#3a3300', anim: 'flip' }),
-  DES('box-cyan', 'Neon box', 'Bold', { preset: 'box', bg: '#06141c', opacity: 90, accent: '#19e3ff', anim: 'typewriter' }),
+  DES('box-cyan', 'Neon box', 'Bold', { preset: 'box', bg: '#06141c', opacity: 90, accent: '#19e3ff', anim: 'flicker', animMs: 800 }),
   DES('underline-white', 'Underline', 'Minimal', { preset: 'underline', accent: '#ffffff', shadow: true, anim: 'line' }),
+  DES('plate-green', 'Green plate', 'Plates', { preset: 'plate', bg: '#0d2218', opacity: 94, accent: '#2ecc71', anim: 'spring' }),
+  DES('plate-crimson', 'Crimson plate', 'Plates', { preset: 'plate', bg: '#2a0a10', opacity: 94, accent: '#ff4d5e', anim: 'glitch', animMs: 800 }),
+  DES('duo-gold', 'Gold two blocks', 'Two lines', { preset: 'duo', bg: '#14110a', opacity: 94, accent: '#d4af37', nameColor: '#1a1405', titleColor: '#efe3b0', anim: 'grow' }),
+  DES('slant-red', 'Slanted red', 'Modern', { preset: 'slant', bg: '#1a0b0e', opacity: 94, accent: '#e63946', anim: 'wipeR', animMs: 650 }),
+  DES('pill-teal', 'Teal pill', 'Modern', { preset: 'pill', bg: '#072a2a', opacity: 94, accent: '#18c7b0', anim: 'zoomout', animMs: 650 }),
+  DES('glass-dark', 'Dark glass', 'Modern', { preset: 'glassplate', bg: '#101820', opacity: 65, accent: '#ffffff', shadow: true, anim: 'focus', animMs: 800 }),
+  DES('arrow-red', 'Red arrow', 'Arrows and tickets', { preset: 'arrow', bg: '#15161a', opacity: 94, accent: '#e63946', anim: 'slide' }),
+  DES('arrow-gold', 'Gold arrow', 'Arrows and tickets', { preset: 'arrow', bg: '#0a1e50', opacity: 94, accent: '#f5b800', anim: 'spring' }),
+  DES('ticket-gold', 'Gold ticket', 'Arrows and tickets', { preset: 'ticket', bg: '#161208', opacity: 95, accent: '#d4af37', anim: 'zoomout' }),
+  DES('ticket-light', 'Light ticket', 'Arrows and tickets', Object.assign({ preset: 'ticket', bg: '#f4f5f8', opacity: 97, accent: '#e63946', anim: 'grow' }, LIGHT)),
+  DES('flag-blue', 'Blue flag', 'Arrows and tickets', { preset: 'flag', bg: '#0f1d3a', opacity: 94, accent: '#2f6bff', anim: 'wipe' }),
+  DES('flag-green', 'Green flag', 'Arrows and tickets', { preset: 'flag', bg: '#0d2218', opacity: 94, accent: '#2ecc71', anim: 'spring' }),
+  DES('bracket-white', 'Corner brackets', 'Light and airy', { preset: 'bracket', bg: '#000000', opacity: 70, accent: '#ffffff', shadow: true, anim: 'focus', animMs: 800 }),
+  DES('bracket-gold', 'Gold brackets', 'Light and airy', { preset: 'bracket', bg: '#000000', opacity: 78, accent: '#d4af37', shadow: true, anim: 'blinds', animMs: 800 }),
+  DES('sideline-white', 'Side line', 'Light and airy', { preset: 'sideline', bg: '#000000', opacity: 80, accent: '#ffffff', shadow: true, anim: 'spring' }),
+  DES('sideline-red', 'Red side line', 'Light and airy', { preset: 'sideline', bg: '#000000', opacity: 80, accent: '#e63946', shadow: true, anim: 'wipe' }),
+  DES('fadebar-black', 'Fading bar', 'Light and airy', { preset: 'fadebar', bg: '#000000', opacity: 88, accent: '#f5b800', shadow: true, anim: 'wipe', animMs: 700 }),
+  DES('dframe-gold', 'Double frame', 'Classic', { preset: 'dframe', bg: '#0c0c10', opacity: 92, accent: '#d4af37', font: 'Georgia', titleColor: '#e8d9a0', anim: 'blinds', animMs: 800 }),
+  DES('dframe-light', 'Light frame', 'Classic', Object.assign({ preset: 'dframe', bg: '#f4f5f8', opacity: 97, accent: '#1b3a8a', font: 'Georgia', anim: 'focus', animMs: 800 }, LIGHT)),
 ];
 const designById = (id) => DESIGNS_FULL.find((d) => d.id === id) || DESIGNS_NAME.find((d) => d.id === id) || null;
 
@@ -272,6 +313,79 @@ function drawPanelBg(ctx, st, img, x, y, w, h) {
       ctx.stroke();
       break;
     }
+    case 'chevron': {
+      ctx.fillStyle = col; ctx.fillRect(x, y, w, h);
+      const cw = h * 0.34, gap = h * 0.14, n = 3;
+      for (let i = 0; i < n; i++) { // three arrows pointing right, bunched at the right edge and fading away to the left
+        const bx = x + w - (n - i) * (cw + gap) - h * 0.1;
+        ctx.fillStyle = hexA(st.accent, 100 - (n - 1 - i) * 0 - (n - i - 1) * 28);
+        poly(ctx, [[bx, y], [bx + cw * 0.55, y], [bx + cw, y + h / 2], [bx + cw * 0.55, y + h], [bx, y + h], [bx + cw * 0.45, y + h / 2]]); ctx.fill();
+      }
+      ctx.fillStyle = st.accent; ctx.fillRect(x, y + h - Math.max(4, h * 0.02), w, Math.max(4, h * 0.02));
+      break;
+    }
+    case 'duoline': {
+      ctx.fillStyle = col; ctx.fillRect(x, y, w, h);
+      const m = Math.max(10, h * 0.07);
+      ctx.fillStyle = st.accent;
+      ctx.fillRect(x + m, y + m, w - m * 2, 3); ctx.fillRect(x + m, y + h - m - 3, w - m * 2, 3);
+      ctx.fillStyle = hexA(st.accent, 45);
+      ctx.fillRect(x + m, y + m + 9, w - m * 2, 1.5); ctx.fillRect(x + m, y + h - m - 10.5, w - m * 2, 1.5);
+      break;
+    }
+    case 'cross': {
+      ctx.fillStyle = col; ctx.fillRect(x, y, w, h);
+      ctx.save(); ctx.beginPath(); ctx.rect(x, y, w, h); ctx.clip();
+      const cs = h * 1.25, cx0 = x + w - cs * 0.62, cy0 = y + h * 0.5, t = cs * 0.2; // a big, faint cross watermark on the right
+      ctx.fillStyle = hexA(st.accent, 13);
+      ctx.fillRect(cx0 - t / 2, cy0 - cs * 0.5, t, cs); ctx.fillRect(cx0 - cs * 0.3, cy0 - cs * 0.5 + cs * 0.28, cs * 0.6, t);
+      ctx.restore();
+      ctx.fillStyle = st.accent; ctx.fillRect(x, y, w, Math.max(5, h * 0.025));
+      ctx.fillStyle = hexA(st.accent, 55); ctx.fillRect(x, y + h - 3, w, 3);
+      break;
+    }
+    case 'spotlight': {
+      ctx.fillStyle = col; ctx.fillRect(x, y, w, h);
+      ctx.save(); ctx.beginPath(); ctx.rect(x, y, w, h); ctx.clip();
+      const g = ctx.createRadialGradient(x + w * 0.3, y + h * 0.5, 0, x + w * 0.3, y + h * 0.5, w * 0.55);
+      g.addColorStop(0, hexA(st.accent, 34)); g.addColorStop(1, hexA(st.accent, 0));
+      ctx.fillStyle = g; ctx.fillRect(x, y, w, h);
+      ctx.restore();
+      ctx.fillStyle = hexA(st.accent, 80); ctx.fillRect(x, y + h - 4, w, 4);
+      break;
+    }
+    case 'sunrise': {
+      ctx.fillStyle = col; ctx.fillRect(x, y, w, h);
+      ctx.save(); ctx.beginPath(); ctx.rect(x, y, w, h); ctx.clip();
+      const g = ctx.createRadialGradient(x + w / 2, y + h * 1.15, 0, x + w / 2, y + h * 1.15, w * 0.42);
+      g.addColorStop(0, hexA(st.accent, 52)); g.addColorStop(0.6, hexA(st.accent, 14)); g.addColorStop(1, hexA(st.accent, 0));
+      ctx.fillStyle = g; ctx.fillRect(x, y, w, h);
+      ctx.restore();
+      ctx.fillStyle = st.accent; ctx.fillRect(x, y + h - Math.max(5, h * 0.025), w, Math.max(5, h * 0.025));
+      break;
+    }
+    case 'dots': {
+      ctx.fillStyle = col; ctx.fillRect(x, y, w, h);
+      ctx.save(); ctx.beginPath(); ctx.rect(x, y, w, h); ctx.clip();
+      const step = Math.max(18, h * 0.1), rad = step * 0.16;
+      for (let px = step / 2; px < w; px += step) {
+        const f = Math.max(0, (px / w - 0.45) / 0.55); // dots only on the right side, getting stronger toward the edge
+        if (!f) continue;
+        ctx.fillStyle = hexA(st.accent, 8 + f * 30);
+        for (let py = step / 2; py < h; py += step) { ctx.beginPath(); ctx.arc(x + px, y + py, rad, 0, Math.PI * 2); ctx.fill(); }
+      }
+      ctx.restore();
+      ctx.fillStyle = st.accent; ctx.fillRect(x, y + h - 5, w, 5);
+      break;
+    }
+    case 'duotone': {
+      ctx.fillStyle = col; ctx.fillRect(x, y, w, h);
+      const g = ctx.createLinearGradient(x, 0, x + w, 0);
+      g.addColorStop(0, hexA(st.accent, 0)); g.addColorStop(0.55, hexA(st.accent, 0)); g.addColorStop(1, hexA(st.accent, 70));
+      ctx.fillStyle = g; ctx.fillRect(x, y, w, h);
+      ctx.fillStyle = st.accent; ctx.fillRect(x, y, Math.max(8, h * 0.035), h);
+      break;
+    }
     case 'bokeh': {
       ctx.fillStyle = col; ctx.fillRect(x, y, w, h);
       ctx.beginPath(); ctx.rect(x, y, w, h); ctx.clip();
@@ -424,7 +538,7 @@ const easeOutCubic = (p) => 1 - Math.pow(1 - clamp01(p), 3);
 const easeOutBack = (p) => { const c = 1.70158, q = clamp01(p) - 1; return 1 + (c + 1) * q * q * q + c * q * q; };
 const sinceAppear = (id) => (appearAt[id] === undefined ? 1e9 : performance.now() - appearAt[id]);
 const stagger = (t, delay, dur) => easeOutCubic((t - delay) / (dur || 450)); // 0 -> 1 after a delay; 1 if it has been on a while
-const ANIMS = ['fade', 'rise', 'slide', 'slideR', 'wipe', 'curtain', 'drop', 'tilt', 'zoom', 'bounce', 'unfold', 'flip', 'typewriter', 'line', 'none'];
+const ANIMS = ['fade', 'rise', 'slide', 'slideR', 'wipe', 'curtain', 'drop', 'tilt', 'zoom', 'bounce', 'unfold', 'flip', 'typewriter', 'line', 'blocks', 'pop', 'diag', 'flicker', 'spring', 'grow', 'focus', 'blinds', 'zoomout', 'glitch', 'wipeR', 'none'];
 // Applies the entrance/exit to the canvas (already saved). Returns how visible the words should be (they come in a little later than the box).
 function beginLookAnim(ctx, st, it, e) {
   if (!e || e.p === undefined || e.p >= 1 || st.anim === 'none') return 1;
@@ -465,6 +579,51 @@ function beginLookAnim(ctx, st, it, e) {
       ctx.globalAlpha *= Math.min(1, v * 1.6); ctx.translate(it.x, by); ctx.rotate(-(1 - v) * 0.32); ctx.translate(-it.x, -by);
       return late;
     }
+    case 'pop': { // grows out from its left edge with a little overshoot (pills)
+      const sc = ein ? 0.55 + 0.45 * easeOutBack(p) : 1 - 0.45 * p * p;
+      ctx.globalAlpha *= Math.min(1, ein ? p * 3 : 1 - p); ctx.translate(it.x, cy); ctx.scale(sc, sc); ctx.translate(-it.x, -cy);
+      return ein ? clamp01((p - 0.3) / 0.5) : 1 - p;
+    }
+    case 'diag': { // slides in along the slant of the shape
+      const sk = it.h * 0.3, len = Math.hypot(sk, it.h), L = it.h * 1.8;
+      ctx.globalAlpha *= Math.min(1, v * 1.6); ctx.translate(-(1 - v) * L * sk / len, (1 - v) * L * it.h / len); return late;
+    }
+    case 'flicker': { // a neon tube switching on
+      const f = !ein ? 1 - p : p < 0.12 ? 0 : p < 0.2 ? 1 : p < 0.3 ? 0.15 : p < 0.42 ? 0.9 : p < 0.5 ? 0.25 : 1;
+      ctx.globalAlpha *= f; return ein ? (p > 0.5 ? 1 : f) : 1 - p;
+    }
+    case 'spring': { // slides in from the left, overshoots a little and settles
+      const q = ein ? easeOutBack(p) : v;
+      ctx.globalAlpha *= ein ? Math.min(1, p * 4) : v; ctx.translate(-(1 - q) * it.w * 0.5, 0); return late;
+    }
+    case 'grow': { // stretches out from its left edge
+      ctx.globalAlpha *= Math.min(1, v * 2); ctx.translate(it.x, 0); ctx.scale(Math.max(0.001, v), 1); ctx.translate(-it.x, 0);
+      return clamp01((v - 0.5) / 0.5);
+    }
+    case 'focus': { // blurry and faint at first, then sharp
+      ctx.globalAlpha *= v; ctx.filter = `blur(${((1 - v) * 18).toFixed(1)}px)`; return late;
+    }
+    case 'blinds': { // opens like window blinds
+      const n = 6, bh = (it.h + 180) / n;
+      ctx.beginPath();
+      for (let i = 0; i < n; i++) ctx.rect(it.x - 90, it.y - 90 + i * bh + (bh * (1 - v)) / 2, it.w + 180, Math.max(0.5, bh * v));
+      ctx.clip();
+      return clamp01((v - 0.4) / 0.6);
+    }
+    case 'zoomout': { // starts big and settles into place
+      const sc = 1.35 - 0.35 * v;
+      ctx.globalAlpha *= v; ctx.translate(cx, cy); ctx.scale(sc, sc); ctx.translate(-cx, -cy);
+      return late;
+    }
+    case 'glitch': { // a quick digital jitter, then it settles
+      if (!ein) { ctx.globalAlpha *= 1 - p; return 1 - p; }
+      const j = p < 0.45 ? Math.sin(p * 90) * 14 * (1 - p / 0.45) : 0;
+      ctx.globalAlpha *= p < 0.08 ? 0 : p < 0.45 ? (Math.sin(p * 60) > 0.15 ? 1 : 0.3) : 1;
+      ctx.translate(j, 0);
+      return clamp01((p - 0.3) / 0.4);
+    }
+    case 'wipeR': ctx.beginPath(); ctx.rect(it.x + it.w * (1 - v), it.y - 90, it.w * v + 90, it.h + 180); ctx.clip(); return 1; // uncovers from the right
+    case 'blocks': return 1; // slide-ins draw this one themselves (each block slides in after the one before)
     case 'line': return 1; // slide-ins draw this one themselves (line stretches, words rise and drop)
     case 'typewriter': { // the bar opens quickly, then the words type themselves on
       const q = ein ? easeOutCubic(clamp01(p / 0.4)) : 1 - p * p;
@@ -519,12 +678,18 @@ function fitText(ctx, text, weight, size, maxW, family) {
   return s;
 }
 // Works out the blocks and the two lines of text for a plate. W is how wide it needs to be.
+const PLATE_MAX = 1700; // a slide-in is never wider than this, so long names shrink instead of running off the screen
 function plateLayout(ctx, st, name, title, h) {
+  let k = 1, L = plateLayoutRaw(ctx, st, name, title, h, k);
+  while (L.W > PLATE_MAX && k > 0.3) { k *= 0.92; L = plateLayoutRaw(ctx, st, name, title, h, k); }
+  return L;
+}
+function plateLayoutRaw(ctx, st, name, title, h, shrink) {
   const hasT = !!(title && String(title).trim());
   const nm = st.nameCaps ? String(name || '').toUpperCase() : String(name || '');
   const ttl = hasT ? String(title) : '';
-  const nsz = Math.max(10, Math.floor(h * (hasT ? 0.33 : 0.44) * st.nameScale / 100));
-  const tsz = Math.max(8, Math.floor(h * 0.2 * st.titleScale / 100));
+  const nsz = Math.max(10, Math.floor(h * (hasT ? 0.33 : 0.44) * st.nameScale / 100 * shrink));
+  const tsz = Math.max(8, Math.floor(h * 0.2 * st.titleScale / 100 * shrink));
   ctx.font = fontStr(st.nameWeight, nsz, st.font); const nw = ctx.measureText(nm).width;
   let tw = 0;
   if (hasT) { ctx.font = fontStr(st.titleWeight, tsz, st.font); tw = ctx.measureText(ttl).width; }
@@ -598,6 +763,56 @@ function plateLayout(ctx, st, name, title, h) {
       addName(pad, h * (hasT ? 0.37 : 0.5), st.nameColor, 0, W); addTitle(pad, h * 0.72, st.titleColor, 0, W);
       break;
     }
+    case 'arrow': { // pointed on the right, coloured edge on the left
+      const e0 = Math.max(6, h * 0.07), tip = h * 0.32, x0 = e0 + pad;
+      W = x0 + mx + pad * 0.6 + tip;
+      bg.push({ t: 'poly', p: [[0, 0], [W - tip, 0], [W, h / 2], [W - tip, h], [0, h]], c: col }, { t: 'rect', x: 0, y: 0, w: e0, h, c: st.accent });
+      addName(x0, h * (hasT ? 0.37 : 0.5), st.nameColor, e0, W - tip - e0); addTitle(x0, h * 0.72, st.titleColor, e0, W - tip - e0);
+      break;
+    }
+    case 'ticket': { // a ticket with a notch in each end and a coloured line along the bottom
+      const n = h * 0.12, x0 = pad * 1.1 + n;
+      W = x0 + mx + pad * 1.1 + n;
+      bg.push({ t: 'poly', p: [[0, 0], [W, 0], [W, h * 0.38], [W - n, h / 2], [W, h * 0.62], [W, h], [0, h], [0, h * 0.62], [n, h / 2], [0, h * 0.38]], c: col });
+      bg.push({ t: 'rect', x: n, y: h - Math.max(5, h * 0.045), w: W - 2 * n, h: Math.max(5, h * 0.045), c: st.accent });
+      addName(x0, h * (hasT ? 0.37 : 0.5), st.nameColor, 0, W); addTitle(x0, h * 0.7, st.titleColor, 0, W);
+      break;
+    }
+    case 'flag': { // a block with a V cut out of the right end and a coloured block on the left
+      const e0 = Math.max(8, h * 0.12), v = h * 0.25, x0 = e0 + pad;
+      W = x0 + mx + pad + v;
+      bg.push({ t: 'poly', p: [[0, 0], [W, 0], [W - v, h / 2], [W, h], [0, h]], c: col }, { t: 'rect', x: 0, y: 0, w: e0, h, c: st.accent });
+      addName(x0, h * (hasT ? 0.37 : 0.5), st.nameColor, e0, W - v - e0); addTitle(x0, h * 0.72, st.titleColor, e0, W - v - e0);
+      break;
+    }
+    case 'bracket': { // light glass with a bracket in each corner
+      const x0 = pad * 1.2;
+      W = x0 * 2 + mx;
+      bg.push({ t: 'bracket', x: 0, y: 0, w: W, h, c: st.accent, f: hexA(st.bg, st.opacity * 0.55), len: h * 0.3, lw: Math.max(4, h * 0.035) });
+      addName(x0, h * (hasT ? 0.37 : 0.5), st.nameColor, 0, W); addTitle(x0, h * 0.72, st.titleColor, 0, W);
+      break;
+    }
+    case 'sideline': { // a thin coloured line down the left and a soft shade behind the words
+      const e0 = Math.max(5, h * 0.05), x0 = e0 + pad * 1.1;
+      W = x0 + mx + pad * 1.8;
+      bg.push({ t: 'grad', x: 0, y: 0, w: W, h, c: hexA(st.bg, st.opacity * 0.7) }, { t: 'rect', x: 0, y: 0, w: e0, h, c: st.accent });
+      addName(x0, h * (hasT ? 0.37 : 0.5), st.nameColor, e0, W - e0); addTitle(x0, h * 0.72, st.titleColor, e0, W - e0);
+      break;
+    }
+    case 'fadebar': { // a bar that fades out to the right, with a short coloured line under it
+      const x0 = pad;
+      W = x0 + mx + pad * 2.4;
+      bg.push({ t: 'grad', x: 0, y: 0, w: W, h, c: col }, { t: 'rect', x: 0, y: h - Math.max(4, h * 0.035), w: W * 0.62, h: Math.max(4, h * 0.035), c: st.accent });
+      addName(x0, h * (hasT ? 0.35 : 0.48), st.nameColor, 0, W); addTitle(x0, h * 0.7, st.titleColor, 0, W);
+      break;
+    }
+    case 'dframe': { // a dark plate with a double line frame
+      const x0 = pad * 1.2;
+      W = x0 * 2 + mx;
+      bg.push({ t: 'dframe', x: 0, y: 0, w: W, h, c: col, stroke: st.accent });
+      addName(x0, h * (hasT ? 0.37 : 0.5), st.nameColor, 0, W); addTitle(x0, h * 0.72, st.titleColor, 0, W);
+      break;
+    }
     default: { // plate: dark block with a coloured bar on the left
       const bar = barW(h), x0 = bar + pad;
       W = x0 + mx + pad * 1.2;
@@ -607,8 +822,9 @@ function plateLayout(ctx, st, name, title, h) {
   }
   return { W: Math.round(Math.max(W, 120)), h, bg, tx };
 }
-function drawPlateBg(ctx, L, ox, oy) {
-  L.bg.forEach((b) => {
+function drawPlateBg(ctx, L, ox, oy, only) {
+  L.bg.forEach((b, bi) => {
+    if (only !== undefined && bi !== only) return;
     ctx.save();
     switch (b.t) {
       case 'rect': ctx.fillStyle = b.c; ctx.fillRect(ox + b.x, oy + b.y, b.w, b.h); break;
@@ -624,6 +840,29 @@ function drawPlateBg(ctx, L, ox, oy) {
         ctx.lineWidth = 1.5; ctx.strokeStyle = 'rgba(255,255,255,0.4)'; rrect(ctx, ox + b.x + 0.75, oy + b.y + 0.75, b.w - 1.5, b.h - 1.5, b.r); ctx.stroke();
         break;
       }
+      case 'grad': { // solid at the left, fading to nothing on the right
+        const g = ctx.createLinearGradient(ox + b.x, 0, ox + b.x + b.w, 0);
+        g.addColorStop(0, b.c); g.addColorStop(0.6, b.c); g.addColorStop(1, 'rgba(0,0,0,0)');
+        ctx.fillStyle = g; ctx.fillRect(ox + b.x, oy + b.y, b.w, b.h);
+        break;
+      }
+      case 'bracket': {
+        ctx.fillStyle = b.f; ctx.fillRect(ox + b.x, oy + b.y, b.w, b.h);
+        ctx.strokeStyle = b.c; ctx.lineWidth = b.lw; ctx.lineCap = 'square';
+        const x0 = ox + b.x + b.lw / 2, y0 = oy + b.y + b.lw / 2, x1 = ox + b.x + b.w - b.lw / 2, y1 = oy + b.y + b.h - b.lw / 2, l = b.len;
+        ctx.beginPath();
+        ctx.moveTo(x0, y0 + l); ctx.lineTo(x0, y0); ctx.lineTo(x0 + l, y0);
+        ctx.moveTo(x1 - l, y0); ctx.lineTo(x1, y0); ctx.lineTo(x1, y0 + l);
+        ctx.moveTo(x1, y1 - l); ctx.lineTo(x1, y1); ctx.lineTo(x1 - l, y1);
+        ctx.moveTo(x0 + l, y1); ctx.lineTo(x0, y1); ctx.lineTo(x0, y1 - l);
+        ctx.stroke();
+        break;
+      }
+      case 'dframe':
+        ctx.fillStyle = b.c; ctx.fillRect(ox + b.x, oy + b.y, b.w, b.h);
+        ctx.strokeStyle = b.stroke; ctx.lineWidth = 3; ctx.strokeRect(ox + b.x + 1.5, oy + b.y + 1.5, b.w - 3, b.h - 3);
+        ctx.lineWidth = 1.5; ctx.strokeRect(ox + b.x + 9, oy + b.y + 9, b.w - 18, b.h - 18);
+        break;
       case 'box':
         ctx.fillStyle = b.c; ctx.fillRect(ox + b.x, oy + b.y, b.w, b.h);
         ctx.shadowColor = b.stroke; ctx.shadowBlur = 16; ctx.strokeStyle = b.stroke; ctx.lineWidth = 3; ctx.strokeRect(ox + b.x + 2, oy + b.y + 2, b.w - 4, b.h - 4);
@@ -675,9 +914,38 @@ function drawNameLine(ctx, it, L, e, st) {
   ctx.restore();
   if (onTop) paintBg();
 }
+// 'blocks' animation: each block of the plate slides in after the one before it, and leaves in the opposite order.
+function drawNameBlocks(ctx, it, L, e, st) {
+  const n = Math.max(1, L.bg.length), ein = !e || e.p === undefined || e.p >= 1 || e.dir !== 'out';
+  const pp = !e || e.p === undefined || e.p >= 1 ? 1 : ein ? e.p : 1 - e.p, span = 0.35 * (n - 1) + 0.65;
+  const part = (i) => easeOutCubic(clamp01((pp * span - 0.35 * i) / 0.65));
+  L.bg.forEach((b, i) => {
+    const q = part(i);
+    if (q <= 0) return;
+    ctx.save(); ctx.globalAlpha *= Math.min(1, q * 2);
+    ctx.translate(-(1 - q) * ((b.w || L.W) + 40), 0);
+    drawPlateBg(ctx, L, it.x, it.y, i);
+    ctx.restore();
+  });
+  if (st.showText === false) return;
+  ctx.save(); ctx.textBaseline = 'middle'; shadowOn(ctx, st, it.h);
+  const center = st.align === 'center'; ctx.textAlign = center ? 'center' : 'left';
+  const g0 = ctx.globalAlpha;
+  const fr = typedFracs(L.tx.map((r) => r.s.length), 1);
+  L.tx.forEach((r, i) => {
+    const a = part(Math.min(n - 1, Math.max(0, r.row - 1)));
+    if (a <= 0) return;
+    ctx.font = fontStr(r.w, r.size, st.font); ctx.fillStyle = r.c; ctx.globalAlpha = g0 * a;
+    const x = it.x + (center ? r.cx + r.cw / 2 : r.x) + st.textX / 100 * L.W - (1 - a) * 60;
+    typedText(ctx, r.s, x, it.y + r.y + st.textY / 100 * it.h, fr[i]);
+  });
+  shadowOff(ctx); ctx.restore();
+}
 function drawNameItem(ctx, it, e) {
   const st = looks.name;
   const L = plateLayout(ctx, st, it.name, it.title, it.h);
+  it = Object.assign({}, it, { x: Math.max(20, Math.min(it.x, W - L.W - 20)) }); // never runs off the sides of the screen
+  if (st.anim === 'blocks') { drawNameBlocks(ctx, it, L, e, st); return; }
   if (st.anim === 'line') { if (st.showText === false) drawPlateBg(ctx, L, it.x, it.y); else drawNameLine(ctx, it, L, e, st); return; }
   const it2 = Object.assign({}, it, { w: L.W }); // the plate is as wide as its words
   const ta = beginLookAnim(ctx, st, it2, e);
@@ -777,7 +1045,8 @@ function drawCardItem(ctx, it, e) {
     const bTxt = hasB ? String(b).toUpperCase() : '';
     const g0 = ctx.globalAlpha;
     const as = fitText(ctx, aTxt, st.nameWeight, h * (hasB ? 0.36 : 0.46) * st.nameScale / 100, maxW, st.font);
-    const bs = hasB ? h * 0.15 * st.titleScale / 100 : 0;
+    let bs = hasB ? h * 0.15 * st.titleScale / 100 : 0;
+    if (hasB) { ctx.font = fontStr('bold', bs, st.font); try { ctx.letterSpacing = Math.round(bs * 0.14) + 'px'; } catch (er) { /* ignore */ } const bw = ctx.measureText(bTxt).width; try { ctx.letterSpacing = '0px'; } catch (er) { /* ignore */ } if (bw > maxW) bs = Math.max(10, bs * maxW / bw); } // the small line never runs off the sides
     const total = as + (hasB ? bs * 1.9 : 0), top = it.y + (h - total) / 2 + as * 0.82 + st.textY / 100 * h;
     const fr = typedFracs([aTxt.length, bTxt.length], tf);
     ctx.font = fontStr(st.nameWeight, as, st.font); ctx.fillStyle = st.nameColor; ctx.globalAlpha = g0 * a1;
@@ -795,9 +1064,9 @@ function drawCardItem(ctx, it, e) {
   if (it.kind === 'countdown') {
     if (show) {
       const cd = countdownText(it), g0 = ctx.globalAlpha;
-      ctx.font = fontStr('bold', h * 0.15, st.font); ctx.fillStyle = st.titleColor; ctx.globalAlpha = g0 * a1;
-      spaced(Math.round(h * 0.02));
-      ctx.fillText(String(it.a || 'Service starts in').toUpperCase(), cx, it.y + h * 0.3);
+      const cl = String(it.a || 'Service starts in').toUpperCase();
+      fitText(ctx, cl, 'bold', h * 0.15, it.w * 0.8, st.font); ctx.fillStyle = st.titleColor; ctx.globalAlpha = g0 * a1;
+      ctx.fillText(cl, cx, it.y + h * 0.3);
       spaced(0);
       const sz = fitText(ctx, cd.big, 'bold', h * (cd.small ? 0.2 : 0.46), it.w * 0.7, st.font);
       const tick = cd.over || cd.small ? 1 : 1 + 0.07 * Math.pow(1 - (Date.now() % 1000) / 1000, 6); // a little tick each second
@@ -808,17 +1077,37 @@ function drawCardItem(ctx, it, e) {
   } else if (it.kind === 'follow') {
     const items = (it.items || []).filter((x) => x && x.text);
     const g0 = ctx.globalAlpha;
+    // The free width: whatever the bar's own decoration leaves, minus a margin. Everything shrinks (then trims) to stay inside it.
+    const inL = { classic: barW(h), gradient: barW(h), minimal: 16, image: 120, split: splitW(h) + 10, angled: h * 0.36 + 10, frame: 26 }[st.preset] || 0;
+    const mar = Math.max(h * 0.25, 60), fL = it.x + inL + mar, fR = it.x + it.w - mar, free = Math.max(200, fR - fL), fcx = (fL + fR) / 2;
     if (show) {
-      ctx.font = fontStr('bold', h * 0.17, st.font); ctx.fillStyle = st.titleColor; ctx.globalAlpha = g0 * a1;
-      spaced(Math.round(h * 0.02));
-      ctx.fillText(String(it.a || 'Follow us').toUpperCase(), cx, it.y + h * 0.27);
-      spaced(0);
+      const ft = String(it.a || 'Follow us').toUpperCase();
+      fitText(ctx, ft, 'bold', h * 0.17, free, st.font); ctx.fillStyle = st.titleColor; ctx.globalAlpha = g0 * a1;
+      ctx.fillText(ft, fcx, it.y + h * 0.27);
     }
-    const isz = h * 0.3, fs = h * 0.19, gapx = h * 0.45;
-    ctx.font = fontStr(st.nameWeight, fs, st.font);
-    const widths = items.map((x) => isz + h * 0.12 + ctx.measureText(x.text).width);
-    const total = widths.reduce((a, b2) => a + b2, 0) + gapx * Math.max(0, items.length - 1);
-    let x = cx - total / 2;
+    let k = 1, isz, fs, gapx, widths, total, labels = items.map((x) => x.text);
+    const measure = () => {
+      isz = h * 0.3 * k; fs = h * 0.19 * k; gapx = h * 0.45 * k;
+      ctx.font = fontStr(st.nameWeight, fs, st.font);
+      widths = labels.map((tx) => isz + h * 0.12 * k + ctx.measureText(tx).width);
+      total = widths.reduce((a, b2) => a + b2, 0) + gapx * Math.max(0, items.length - 1);
+    };
+    measure();
+    while (total > free && k > 0.5) { k -= 0.05; measure(); }
+    if (total > free && items.length) { // still too wide: trim each name with ..., and shrink a little more if that is not enough
+      const orig = items.map((x0) => x0.text);
+      for (let guard = 0; guard < 12 && total > free; guard++) {
+        const room = Math.max(30, (free - gapx * (items.length - 1)) / items.length - isz - h * 0.12 * k - 4);
+        labels = orig.map((tx) => {
+          if (ctx.measureText(tx).width <= room) return tx;
+          let t2 = tx; while (t2.length > 1 && ctx.measureText(t2 + '...').width > room) t2 = t2.slice(0, -1);
+          return t2.trimEnd() + '...';
+        });
+        measure();
+        if (total > free && k > 0.3) { k -= 0.05; measure(); }
+      }
+    }
+    let x = fcx - total / 2;
     items.forEach((x0, i) => {
       const pop = stagger(t, 350 + i * 220, 500), sc = (0.6 + 0.4 * easeOutBack(clamp01((t - 350 - i * 220) / 500))) * (t > 1500 ? pulse : 1);
       const my = it.y + h * 0.66;
@@ -829,28 +1118,30 @@ function drawCardItem(ctx, it, e) {
         ctx.beginPath(); ctx.arc(x + isz / 2, my, isz * (0.55 + 0.4 * ph), 0, Math.PI * 2); ctx.stroke(); ctx.restore();
       }
       ctx.save(); ctx.translate(x + isz / 2, my); ctx.scale(sc, sc); drawIcon(ctx, x0.icon, 0, 0, isz, st.accent); ctx.restore();
-      if (show) { ctx.textAlign = 'left'; ctx.font = fontStr(st.nameWeight, fs, st.font); ctx.fillStyle = st.nameColor; ctx.fillText(x0.text, x + isz + h * 0.12, my + fs * 0.34); ctx.textAlign = 'center'; }
+      if (show) { ctx.textAlign = 'left'; ctx.font = fontStr(st.nameWeight, fs, st.font); ctx.fillStyle = st.nameColor; ctx.fillText(labels[i], x + isz + h * 0.12 * k, my + fs * 0.34); ctx.textAlign = 'center'; }
       x += widths[i] + gapx;
     });
     ctx.globalAlpha = g0;
   } else if (it.kind === 'give') {
     const hasQr = !!(it.url && String(it.url).trim());
-    const q = h * 0.82, qx = it.x + it.w - q - h * 0.28, qy = it.y + (h - q) / 2;
+    // The wave style has a wavy top edge. Everything is laid out in the calm area under it so the QR code and the words never run into the waves.
+    const ti = st.preset === 'wave' ? h * 0.2 : 0, oy = it.y + ti, hh = h - ti;
+    const q = hh * 0.82, qx = it.x + it.w - q - h * 0.28, qy = oy + (hh - q) / 2;
     const g0 = ctx.globalAlpha, pop = stagger(t, 300, 500), sc = 0.7 + 0.3 * easeOutBack(clamp01((t - 300) / 500)); // the code settles in once and then stays still
     if (show) {
       ctx.textAlign = 'left';
       const tx = it.x + Math.max(h * 0.3, 90) + (st.preset === 'image' ? 110 : st.preset === 'split' ? splitW(h) : st.preset === 'angled' ? h * 0.36 : 0), mw = (hasQr ? qx : it.x + it.w) - tx - h * 0.3;
       const aTxt = st.nameCaps ? String(it.a || 'Give').toUpperCase() : String(it.a || 'Give');
-      fitText(ctx, aTxt, st.nameWeight, h * 0.36 * st.nameScale / 100, mw, st.font);
-      ctx.fillStyle = st.nameColor; ctx.globalAlpha = g0 * a1; ctx.fillText(aTxt, tx + (1 - a1) * 40, it.y + h * 0.43);
-      ctx.font = fontStr('bold', h * 0.14 * st.titleScale / 100, st.font); ctx.fillStyle = st.titleColor; ctx.globalAlpha = g0 * a2;
-      spaced(Math.round(h * 0.02));
-      ctx.fillText(String(it.b || 'Scan to give').toUpperCase(), tx + (1 - a2) * 40, it.y + h * 0.43 + h * 0.2);
+      fitText(ctx, aTxt, st.nameWeight, hh * 0.36 * st.nameScale / 100, mw, st.font);
+      ctx.fillStyle = st.nameColor; ctx.globalAlpha = g0 * a1; ctx.fillText(aTxt, tx + (1 - a1) * 40, oy + hh * 0.43);
+      ctx.font = fontStr('bold', hh * 0.14 * st.titleScale / 100, st.font); ctx.fillStyle = st.titleColor; ctx.globalAlpha = g0 * a2;
+      spaced(Math.round(hh * 0.02));
+      ctx.fillText(String(it.b || 'Scan to give').toUpperCase(), tx + (1 - a2) * 40, oy + hh * 0.43 + hh * 0.2);
       spaced(0);
       if (hasQr) { // the link itself, for people who cannot scan
         const shown = String(it.url).replace(/^https?:\/\//i, '').replace(/\/$/, '');
-        fitText(ctx, shown, 'bold', h * 0.13, mw, st.font);
-        ctx.fillStyle = st.accent; ctx.globalAlpha = g0 * a2; ctx.fillText(shown, tx + (1 - a2) * 40, it.y + h * 0.43 + h * 0.2 + h * 0.2);
+        fitText(ctx, shown, 'bold', hh * 0.13, mw, st.font);
+        ctx.fillStyle = st.accent; ctx.globalAlpha = g0 * a2; ctx.fillText(shown, tx + (1 - a2) * 40, oy + hh * 0.43 + hh * 0.2 + hh * 0.2);
       }
     }
     if (hasQr) { // no link, no QR code: nothing is drawn

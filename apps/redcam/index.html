@@ -235,6 +235,15 @@ kbd{background:var(--surface-3);border:1px solid var(--line);border-bottom-width
 .zoomrow{display:flex;align-items:center;gap:12px}
 .zoomrow output{min-width:46px;text-align:right;color:var(--muted);font-variant-numeric:tabular-nums}
 
+/* ---------- video input picker ---------- */
+.vthumbs{display:grid;grid-template-columns:repeat(auto-fill,minmax(112px,1fr));gap:8px;margin:0 0 10px}
+.vthumbs:empty{display:none}
+.vthumb{position:relative;aspect-ratio:16/9;border-radius:10px;overflow:hidden;border:2px solid var(--line);background:var(--surface-2);padding:0}
+.vthumb img{position:absolute;inset:0;width:100%;height:100%;object-fit:cover}
+.vthumb span{position:absolute;left:0;right:0;bottom:0;padding:10px 6px 4px;font-size:11px;font-weight:600;background:linear-gradient(transparent,rgba(0,0,0,.8));text-align:left}
+.vthumb.sel{border-color:var(--accent)}
+.vthumb.ip{display:grid;place-items:center;font-size:12px;color:var(--muted)}
+
 /* ---------- toasts ---------- */
 #toasts{position:fixed;left:50%;bottom:22px;transform:translateX(-50%);display:flex;flex-direction:column;align-items:center;gap:8px;z-index:300;pointer-events:none;width:calc(100% - 24px)}
 .toast{max-width:min(460px,100%);padding:9px 16px;border-radius:999px;background:#242424;border:1px solid var(--line-2);box-shadow:0 10px 30px rgba(0,0,0,.5);font-size:13px;overflow-wrap:anywhere;text-align:center;animation:tin .18s ease-out}
@@ -381,12 +390,29 @@ kbd{background:var(--surface-3);border:1px solid var(--line);border-bottom-width
         </section>
 
         <section class="group">
+          <h3>Video input</h3>
+          <label class="field"><span>Picture source</span>
+            <select class="input" id="videoDevice"><option value="-1">IP camera snapshots (default)</option></select></label>
+          <div class="vthumbs" id="vthumbs"></div>
+          <button class="btn" id="scanVideo" type="button">Scan for camera inputs</button>
+          <p class="hint" id="videoHint" style="margin-top:8px">For smooth live video, plug the camera's HDMI/USB output into this computer (capture card) and choose it here. Leave it on IP snapshots to use the camera's own snapshot.</p>
+        </section>
+
+        <section class="group">
           <h3>Page size (this device)</h3>
           <div class="zoomrow">
             <input id="pageZoom" type="range" min="50" max="200" step="5">
             <output id="pageZoomLabel">100%</output>
           </div>
           <p class="hint" style="margin-top:6px">Scales the header and scenes only.</p>
+        </section>
+
+        <section class="group">
+          <h3>Automation</h3>
+          <a class="btn" href="/tracker" style="text-decoration:none">
+            <svg class="icon" viewBox="0 0 24 24"><circle cx="12" cy="12" r="9"/><circle cx="12" cy="12" r="4"/><line x1="12" y1="1" x2="12" y2="5"/><line x1="12" y1="19" x2="12" y2="23"/><line x1="1" y1="12" x2="5" y2="12"/><line x1="19" y1="12" x2="23" y2="12"/></svg>Motion tracking
+          </a>
+          <p class="hint" style="margin-top:8px">Switch presets automatically when someone walks off the edge of the picture.</p>
         </section>
       </div>
 
@@ -436,7 +462,7 @@ const $  = (s, r = document) => r.querySelector(s);
 const $$ = (s, r = document) => Array.from(r.querySelectorAll(s));
 const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
 
-let config = { ip: "", user: "", hasPass: false, sceneCount: 30, pageZoom: 100, endEnabled: true, endSteps: [] };
+let config = { ip: "", user: "", hasPass: false, sceneCount: 30, pageZoom: 100, endEnabled: true, endSteps: [], videoDevice: -1 };
 let editing = false;
 
 /* ================= toast ================= */
@@ -485,7 +511,9 @@ async function loadSettings() {
       sceneCount: parseInt(d.sceneCount, 10) || 30, pageZoom,
       endEnabled: d.endEnabled !== false,
       endSteps: Array.isArray(d.endSteps) ? d.endSteps : [],
+      videoDevice: parseInt(d.videoDevice, 10) >= 0 ? parseInt(d.videoDevice, 10) : -1,
     };
+    deviceRetryAt = 0;
   } catch (e) { /* keep defaults */ }
   applyConfig();
 }
@@ -591,6 +619,7 @@ function fillSettingsForm() {
   $("#pass").value = "";
   $("#pass").placeholder = config.hasPass ? "Saved (leave blank to keep)" : "";
   $("#sceneCount").value = config.sceneCount || 30;
+  renderVideoPicker(config.videoDevice);
   $("#pageZoom").value = config.pageZoom || 100;
   $("#pageZoomLabel").textContent = (config.pageZoom || 100) + "%";
   $("#endEnabled").checked = config.endEnabled;
@@ -612,6 +641,7 @@ async function saveSettings() {
     pageZoom: parseInt($("#pageZoom").value, 10) || 100,
     endEnabled: $("#endEnabled").checked,
     endSteps: steps,
+    videoDevice: parseInt($("#videoDevice").value, 10),
   };
   try {
     await postJSON("/api/settings", payload);
@@ -633,6 +663,37 @@ $("#addStep").addEventListener("click", () => {
 $("#endEnabled").addEventListener("change", syncEndEditorState);
 $("#pageZoom").addEventListener("input", (e) => { const v = parseInt(e.target.value, 10); $("#pageZoomLabel").textContent = v + "%"; applyZoomPercent(v); });
 $("#settingsModal").addEventListener("pointerdown", (e) => { if (e.target.id === "settingsModal") cancelSettings(); });
+
+/* ================= video input picker ================= */
+let videoDevs = [], deviceRetryAt = 0;      // deviceRetryAt: after a failed picture, use the IP snapshot briefly, then try the input again
+function renderVideoPicker(selected) {
+  const sel = $("#videoDevice"), box = $("#vthumbs");
+  let html = '<option value="-1">IP camera snapshots (default)</option>';
+  const known = new Set(videoDevs.map((d) => d.index));
+  if (selected >= 0 && !known.has(selected)) html += `<option value="${selected}">Camera input ${selected} (saved)</option>`;
+  videoDevs.forEach((d) => { html += `<option value="${d.index}">${d.label} (${d.width}x${d.height})</option>`; });
+  sel.innerHTML = html; sel.value = String(selected);
+  box.textContent = "";
+  if (!videoDevs.length) return;
+  const mk = (value, inner, cls) => {
+    const b = document.createElement("button"); b.type = "button"; b.className = "vthumb " + cls + (parseInt(sel.value, 10) === value ? " sel" : "");
+    b.innerHTML = inner; b.addEventListener("click", () => { sel.value = String(value); renderVideoPicker(value); }); return b;
+  };
+  box.appendChild(mk(-1, "IP snapshots", "ip"));
+  videoDevs.forEach((d) => box.appendChild(mk(d.index, `<img alt="" src="${d.thumb}"><span>${d.label}</span>`, "")));
+}
+$("#videoDevice").addEventListener("change", (e) => renderVideoPicker(parseInt(e.target.value, 10)));
+$("#scanVideo").addEventListener("click", async () => {
+  const b = $("#scanVideo"); b.disabled = true; b.textContent = "Scanning...";
+  try {
+    const res = await fetch("/api/video/devices"); const d = await res.json();
+    if (!res.ok) throw new Error(d.message || "Scan failed");
+    videoDevs = d.devices || [];
+    renderVideoPicker(parseInt($("#videoDevice").value, 10));
+    toast(videoDevs.length ? `Found ${videoDevs.length} camera input${videoDevs.length > 1 ? "s" : ""}. Pick one and press Save.` : "No camera inputs found on this computer", videoDevs.length ? undefined : "error");
+  } catch (e) { toast(e.message, "error"); }
+  b.disabled = false; b.textContent = "Scan for camera inputs";
+});
 
 /* ================= edit mode ================= */
 function setMode(mode) {
@@ -969,27 +1030,31 @@ window.addEventListener("resize", () => { if (panelOpen()) relayout(null); });
 
 /* ================= live preview ================= */
 let previewTimer = null, previewBusy = false, previewUrl = null, previewFails = 0;
-const previewWanted = () => panelOpen() && previewOn && !panel.classList.contains("tiny") && !document.hidden && !!config.ip;
+const previewWanted = () => panelOpen() && previewOn && !panel.classList.contains("tiny") && !document.hidden && (!!config.ip || config.videoDevice >= 0);
+function setLive(cls, label) { const d = $("#previewDot"); d.className = "live " + cls; d.innerHTML = "<i></i>" + label; }
 async function previewTick() {
   previewTimer = null;
   if (!previewWanted()) return;
   previewBusy = true;
+  // Use the camera input chosen in Settings. If it fails, show the IP snapshot for a few seconds, then try the input again.
+  const useDevice = config.videoDevice >= 0 && (Date.now() >= deviceRetryAt || !config.ip);
   try {
-    const res = await fetch("/api/camera/snapshot?t=" + Date.now(), { cache: "no-store" });
-    if (!res.ok) throw new Error("no image");
+    const res = await fetch((useDevice ? "/api/video/frame?t=" : "/api/camera/snapshot?t=") + Date.now(), { cache: "no-store" });
+    if (!res.ok) { if (useDevice) { deviceRetryAt = Date.now() + 6000; if (config.ip) previewFails = 0; } throw new Error("no image"); }
     const url = URL.createObjectURL(await res.blob());
     const img = $("#livePreview"), old = previewUrl;
     img.onload = () => { if (old) URL.revokeObjectURL(old); };
     img.src = url; previewUrl = url; previewFails = 0;
     $("#previewMsg").classList.add("hidden");
-    $("#previewDot").className = "live ok";
+    setLive("ok", useDevice ? "LIVE · INPUT " + config.videoDevice : "LIVE");
   } catch (e) {
     previewFails++;
-    const m = $("#previewMsg"); m.classList.remove("hidden"); m.textContent = config.ip ? "No picture from camera" : "Set the camera IP in Settings";
-    $("#previewDot").className = "live bad";
+    const m = $("#previewMsg"); m.classList.remove("hidden");
+    m.textContent = config.videoDevice >= 0 && !config.ip ? "No picture from the camera input" : (config.ip ? "No picture from camera" : "Set the camera IP in Settings");
+    setLive("bad", "LIVE");
   }
   previewBusy = false;
-  const delay = previewFails ? Math.min(5000, 1000 * previewFails) : (holds > 0 || keysDown.size ? 350 : 900);
+  const delay = previewFails ? Math.min(5000, 1000 * previewFails) : (useDevice ? 250 : (holds > 0 || keysDown.size ? 350 : 900));
   if (previewWanted()) previewTimer = setTimeout(previewTick, delay);
 }
 function previewKick() { if (!previewTimer && !previewBusy && previewWanted()) previewTick(); }

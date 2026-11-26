@@ -78,7 +78,7 @@ function publicState() {
       return {
         id: r.id, name: r.name, glyph: r.glyph, description: r.description,
         installed: !!v, version: v, previous: v ? store.readState(r.id).previous : null,
-        running: rt.isRunning(r.id), starting: rt.isStarting(r.id), update: updates[r.id] ? updates[r.id].version : null,
+        running: rt.isRunning(r.id), starting: rt.isStarting(r.id), loading: rt.loadingOf(r.id), update: updates[r.id] ? updates[r.id].version : null,
         blocked: blocked[r.id] ? { version: blocked[r.id].version, needs: blocked[r.id].minLauncher } : null,
         screen: rt.screenOf(r.id), installing: installing[r.id] || null,
       };
