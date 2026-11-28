@@ -1,6 +1,6 @@
 {
   "name": "redcast",
-  "version": "1.0.0",
+  "version": "1.1.0",
   "description": "Redcast: camera, lower thirds, Bible verses, video, external screens and streaming for church services",
   "main": "main.js",
   "scripts": {
