@@ -2,6 +2,8 @@
 const { app, BrowserWindow, ipcMain, screen, session, shell, safeStorage, dialog, protocol, net, nativeImage, desktopCapturer } = require('electron');
 const { pathToFileURL } = require('url');
 const ytModule = require('./yt');
+const sermonModule = require('./sermon');
+const remoteModule = require('./remote');
 const { spawn, execFile } = require('child_process');
 const path = require('path');
 const fs = require('fs');
@@ -428,7 +430,7 @@ function buildArgs(o) {
   }
   // Recordings are fragmented MP4: they play anywhere, and survive the app or the PC stopping suddenly.
   const MOV = 'frag_keyframe+empty_moov+default_base_moof';
-  const rec = path.join(recDir, `${APP_NAME}-${stamp()}.mp4`);
+  const rec = path.join(o.folder || recDir, `${APP_NAME}-${stamp()}.mp4`);
   if (o.dest === 'record') { // recording only: nothing is sent to the internet
     a.push('-y', '-f', 'mp4', '-movflags', MOV, rec);
     return { args: a, display: rec, recording: rec };
@@ -445,6 +447,7 @@ function buildArgs(o) {
   return { args: a, display: shown };
 }
 
+let ffTeeLive = false; // true while ffmpeg sends to the internet AND saves a backup (the backup keeps going if the internet drops)
 function parseFfLine(line) {
   if (/frame=\s*\d+/.test(line)) {
     const g = (re) => { const m = line.match(re); return m ? Number(m[1]) : null; };
@@ -456,13 +459,26 @@ function parseFfLine(line) {
     const sp = g(/speed=\s*([\d.]+)x/); if (sp !== null) ffStats.speed = sp;
   } else if (line.trim()) {
     send('ffmpeg:log', line.trim());
+    // With a backup copy, ffmpeg does not stop when the internet drops. End it here so Redcast reconnects (the pieces are joined afterwards).
+    if (ffTeeLive && ff && /Slave muxer #0 failed/i.test(line)) { ffTeeLive = false; const p = ff; try { p.stdin.end(); } catch (err) { /* ignore */ } setTimeout(() => { if (ff === p) p.kill(); }, 3000); }
   }
 }
 
+const sermon = sermonModule.create({ ffmpegPath: () => ffmpegPath(), log: (t) => send('ffmpeg:log', t) });
 ipcMain.handle('stream:start', (e, o) => {
   if (ff) return { ok: false, error: 'A stream is already running' };
   const exe = ffmpegPath();
+  // One folder per stream: the full recording, and later the sermon video and sermon audio, all go in it. A reconnect or a restart reuses the same folder.
+  let folder = '';
+  if (o.dest !== 'file') {
+    try {
+      folder = o.folder && fs.existsSync(o.folder) ? o.folder : path.join(recDir, `${APP_NAME} ${stamp()}`);
+      fs.mkdirSync(folder, { recursive: true });
+    } catch (err) { folder = ''; }
+  }
+  o = Object.assign({}, o, { folder });
   const { args, display, recording } = buildArgs(o);
+  ffTeeLive = !!(o.dest === 'rtmp' && o.record);
   try {
     ffLogStream = fs.createWriteStream(path.join(logDir, `ffmpeg-${stamp()}.log`));
     ff = spawn(exe, args, { stdio: ['pipe', 'ignore', 'pipe'], windowsHide: true });
@@ -487,16 +503,18 @@ ipcMain.handle('stream:start', (e, o) => {
     send('stream:ended', { code: null, error: err.message });
   });
   proc.on('exit', (code, signal) => {
+    sermon.segmentEnd();
     ffStats.running = false;
     if (ff === proc) ff = null;
     if (ffLogStream) { ffLogStream.end(); ffLogStream = null; }
     send('stream:ended', { code, signal });
   });
-  return { ok: true, exe, display, encoder: o.encoder, recording: recording || '' };
+  if (folder && recording) { sermon.begin(folder); sermon.segmentStart(recording); }
+  return { ok: true, exe, display, encoder: o.encoder, recording: recording || '', folder };
 });
 
 ipcMain.on('stream:chunk', (e, data) => {
-  if (ff && ff.stdin.writable) ff.stdin.write(Buffer.from(data));
+  if (ff && ff.stdin.writable) { sermon.firstChunk(); ff.stdin.write(Buffer.from(data)); }
 });
 
 ipcMain.handle('stream:stop', () => {
@@ -572,6 +590,63 @@ ipcMain.handle('bible:fetch', wrap(async (ref, trans) => {
   };
 }));
 
+// Operator settings kept in a file (redcast-settings.json) so a crash or a cleared browser cache cannot lose them. Written whole or not at all.
+const settingsFile = () => path.join(app.getPath('userData'), 'redcast-settings.json');
+ipcMain.on('settings:load', (e) => { try { e.returnValue = fs.readFileSync(settingsFile(), 'utf8'); } catch (err) { e.returnValue = ''; } });
+ipcMain.on('settings:save', (e, json) => {
+  try {
+    if (typeof json !== 'string' || json.length > 5e6) { e.returnValue = false; return; }
+    fs.mkdirSync(path.dirname(settingsFile()), { recursive: true });
+    const tmp = settingsFile() + '.tmp';
+    fs.writeFileSync(tmp, json);
+    fs.renameSync(tmp, settingsFile());
+    e.returnValue = true;
+  } catch (err) { e.returnValue = false; } // the settings still work until the app closes
+});
+// Several pieces from one stream (the connection dropped and came back) are joined into one file. The pieces are deleted only after the joined file is made.
+const joinRecordings = (files) => new Promise((resolve) => {
+  try {
+    const parts = (Array.isArray(files) ? files : []).filter((f) => typeof f === 'string' && /\.mp4$/i.test(f) && fs.existsSync(f) && fs.statSync(f).size > 0);
+    if (parts.length < 2) { resolve({ ok: false, file: parts[0] || '' }); return; }
+    const out = parts[0].replace(/\.mp4$/i, '-joined.mp4');
+    const list = path.join(logDir, `join-${stamp()}.txt`);
+    fs.writeFileSync(list, parts.map((f) => `file '${f.replace(/\\/g, '/').replace(/'/g, "'\\''")}'`).join('\n'));
+    const p = spawn(ffmpegPath(), ['-hide_banner', '-y', '-f', 'concat', '-safe', '0', '-i', list, '-c', 'copy', '-movflags', '+faststart', out], { stdio: ['ignore', 'ignore', 'ignore'], windowsHide: true });
+    p.on('error', () => resolve({ ok: false, file: parts[0] }));
+    p.on('exit', (code) => {
+      let good = false;
+      try { good = code === 0 && fs.statSync(out).size > 0; } catch (err) { /* ignore */ }
+      if (good) parts.forEach((f) => { try { fs.unlinkSync(f); } catch (err) { /* ignore */ } });
+      try { fs.unlinkSync(list); } catch (err) { /* ignore */ }
+      send('ffmpeg:log', good ? `Joined ${parts.length} recording pieces into ${out}` : 'Could not join the recording pieces; they are kept as separate files.');
+      resolve({ ok: good, file: good ? out : parts[0] });
+    });
+  } catch (err) { resolve({ ok: false, file: '' }); }
+});
+// When a stream is over: join the pieces (if the connection dropped), then cut the sermon out of the full recording.
+ipcMain.handle('recordings:finish', async (e, files) => {
+  const r = await joinRecordings(files);
+  await sermon.finish(r.file);
+  return r;
+});
+// Remote control page (local network only, 4-digit PIN). The page asks the screen to do things and to take a small picture of the Output.
+const remoteWaiting = new Map();
+let remoteSeq = 0;
+const askScreen = (channel, payload, ms) => new Promise((resolve) => {
+  if (!mainWin || mainWin.isDestroyed()) { resolve(null); return; }
+  const id = ++remoteSeq;
+  const timer = setTimeout(() => { remoteWaiting.delete(id); resolve(null); }, ms);
+  remoteWaiting.set(id, (d) => { clearTimeout(timer); resolve(d); });
+  send(channel, Object.assign({ id }, payload));
+});
+ipcMain.on('remote:reply', (e, id, data) => { const w = remoteWaiting.get(id); if (w) { remoteWaiting.delete(id); w(data); } });
+const remote = remoteModule.create({
+  log: (t) => send('ffmpeg:log', t),
+  snapshot: () => askScreen('remote:snap', {}, 1500),
+  call: async (op, args) => (await askScreen('remote:call', { op, args }, 20000)) || { ok: false, error: 'The church PC did not answer. Is Redcast open?' },
+});
+ipcMain.on('remote:setPin', (e, pin) => remote.setPin(pin));
+ipcMain.handle('remote:address', () => remote.address());
 ipcMain.handle('app:name', () => APP_NAME);
 ipcMain.handle('recordings:open', () => { fs.mkdirSync(recDir, { recursive: true }); return shell.openPath(recDir); });
 ipcMain.handle('recordings:dir', () => recDir);
@@ -593,6 +668,8 @@ ipcMain.handle('logs:open', () => shell.openPath(logDir));
 ipcMain.handle('logs:dir', () => logDir);
 
 app.whenReady().then(() => {
+  sermon.listen();
+  remote.listen();
   { // serve files from the media folder, and only from it
     protocol.handle('redcast-media', (request) => {
       try {

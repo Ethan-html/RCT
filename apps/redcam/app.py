@@ -48,6 +48,9 @@ DEFAULT_SETTINGS = {
     # Each step presses `keys`, then waits `delay` seconds before the NEXT step.
     "endEnabled": True,
     "endSteps": [],
+    # Sermon scene: 0 = none. When the camera goes to this scene Redcast is told the sermon started,
+    # and when it goes to any other scene, that the sermon ended.
+    "sermonPreset": 0,
 }
 
 DEFAULT_DELAY = 5
@@ -140,6 +143,7 @@ def normalize_settings(payload, existing):
         "videoDevice": clamp_int(payload.get("videoDevice", existing.get("videoDevice", -1)), -1, 31, -1),
         "endEnabled": bool(payload.get("endEnabled", True)),
         "endSteps": clean_steps(payload.get("endSteps", [])),
+        "sermonPreset": clamp_int(payload.get("sermonPreset", existing.get("sermonPreset", 0)), 0, 50, 0),
     }
 
 
@@ -275,10 +279,49 @@ def camera_snapshot():
     return resp
 
 
+# ---------------------------------------------------------------- sermon link to Redcast
+# Redcast (same computer) listens on this port. Nothing here ever shows an error: if Redcast is closed, nothing happens.
+REDCAST_URL = "http://127.0.0.1:8765"
+_sermon_lock = threading.Lock()
+_in_sermon = False
+
+
+def _tell_redcast(event: str):
+    try:
+        requests.post(f"{REDCAST_URL}/sermon", json={"event": event}, timeout=2)
+    except Exception:
+        pass
+
+
+def notify_preset(num):
+    """Called whenever the camera goes to a scene. Tells Redcast when the sermon scene starts or stops being the current one.
+    Moving the camera by hand (joystick, zoom, focus) never comes through here, so it never ends the sermon."""
+    global _in_sermon
+    try:
+        sermon = int(get_settings().get("sermonPreset", 0) or 0)
+        now_in = sermon > 0 and int(num) == sermon
+    except (TypeError, ValueError):
+        return
+    if sermon <= 0:
+        return
+    with _sermon_lock:
+        if now_in == _in_sermon:
+            return  # pressing the sermon scene again while already on it changes nothing
+        _in_sermon = now_in
+    threading.Thread(target=_tell_redcast, args=("start" if now_in else "end",), daemon=True).start()
+
+
+@app.route("/api/sermon/state")
+def sermon_state():
+    """Redcast asks this when a stream starts, in case the camera is already on the sermon scene."""
+    return jsonify({"inSermon": bool(_in_sermon)})
+
+
 @app.route("/api/presets/<int:preset_num>/recall", methods=["POST"])
 def recall_preset(preset_num: int):
     try:
         camera_get(f"cgi-bin/ptzctrl.cgi?ptzcmd&poscall&{preset_num}")
+        notify_preset(preset_num)
         return jsonify({"status": "ok"})
     except CAMERA_ERRORS as exc:
         return jsonify({"status": "error", "message": str(exc)}), 400
@@ -479,7 +522,7 @@ try:
     import tracker
     tracker.init(app, resource_dir=RESOURCE_DIR, data_dir=DATA_DIR, camera_get=camera_get,
                  get_settings=get_settings, load_json=load_json, save_json=save_json,
-                 camera_errors=CAMERA_ERRORS, settings_file=SETTINGS_FILE)
+                 camera_errors=CAMERA_ERRORS, settings_file=SETTINGS_FILE, on_preset=notify_preset)
 except Exception as exc:  # the controller keeps working even if tracking can't load
     logging.getLogger("ptz").warning("Motion tracking disabled: %s", exc)
 

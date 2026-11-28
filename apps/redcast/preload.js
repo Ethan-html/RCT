@@ -1,6 +1,6 @@
 const { contextBridge, ipcRenderer } = require('electron');
 
-const ALLOWED_EVENTS = ['metrics', 'stream:ended', 'ffmpeg:log', 'tv:state', 'tv:closed', 'rtc:signal', 'media:changed', 'web:frame', 'web:state'];
+const ALLOWED_EVENTS = ['metrics', 'stream:ended', 'ffmpeg:log', 'tv:state', 'tv:closed', 'rtc:signal', 'media:changed', 'web:frame', 'web:state', 'remote:snap', 'remote:call'];
 
 contextBridge.exposeInMainWorld('api', {
   captureSources: (light) => ipcRenderer.invoke('capture:sources', !!light),
@@ -49,6 +49,12 @@ contextBridge.exposeInMainWorld('api', {
   ltOpen: () => ipcRenderer.invoke('lt:open'),
   openLogs: () => ipcRenderer.invoke('logs:open'),
   logDir: () => ipcRenderer.invoke('logs:dir'),
+  remoteReply: (id, data) => ipcRenderer.send('remote:reply', id, data),
+  remoteSetPin: (pin) => ipcRenderer.send('remote:setPin', pin),
+  remoteAddress: () => ipcRenderer.invoke('remote:address'),
+  finishRecording: (files) => ipcRenderer.invoke('recordings:finish', files),
+  settingsLoad: () => ipcRenderer.sendSync('settings:load'),
+  settingsSave: (json) => ipcRenderer.sendSync('settings:save', json),
   on: (channel, cb) => {
     if (ALLOWED_EVENTS.includes(channel)) ipcRenderer.on(channel, (e, data) => cb(data));
   },

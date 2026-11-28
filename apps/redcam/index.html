@@ -387,6 +387,8 @@ kbd{background:var(--surface-3);border:1px solid var(--line);border-bottom-width
             <label class="field"><span>Password</span><input class="input" id="pass" type="password" autocomplete="new-password"></label>
           </div>
           <label class="field"><span>Number of scenes</span><input class="input" id="sceneCount" type="number" min="1" max="50"></label>
+          <label class="field"><span>Sermon scene</span><select class="input" id="sermonPreset"></select></label>
+          <p class="hint" style="margin-top:6px">When the camera goes to this scene, Redcast starts saving the sermon. It stops when you go to any other scene.</p>
         </section>
 
         <section class="group">
@@ -462,7 +464,7 @@ const $  = (s, r = document) => r.querySelector(s);
 const $$ = (s, r = document) => Array.from(r.querySelectorAll(s));
 const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
 
-let config = { ip: "", user: "", hasPass: false, sceneCount: 30, pageZoom: 100, endEnabled: true, endSteps: [], videoDevice: -1 };
+let config = { ip: "", user: "", hasPass: false, sceneCount: 30, pageZoom: 100, endEnabled: true, endSteps: [], videoDevice: -1, sermonPreset: 0 };
 let editing = false;
 
 /* ================= toast ================= */
@@ -512,6 +514,7 @@ async function loadSettings() {
       endEnabled: d.endEnabled !== false,
       endSteps: Array.isArray(d.endSteps) ? d.endSteps : [],
       videoDevice: parseInt(d.videoDevice, 10) >= 0 ? parseInt(d.videoDevice, 10) : -1,
+      sermonPreset: parseInt(d.sermonPreset, 10) > 0 ? parseInt(d.sermonPreset, 10) : 0,
     };
     deviceRetryAt = 0;
   } catch (e) { /* keep defaults */ }
@@ -613,6 +616,17 @@ function syncEndEditorState() {
   $("#endEditor").style.opacity = $("#endEnabled").checked ? "1" : ".45";
 }
 
+function fillSermonPicker() {
+  const sel = $("#sermonPreset"), count = parseInt($("#sceneCount").value, 10) || config.sceneCount || 30;
+  sel.textContent = "";
+  const none = document.createElement("option"); none.value = "0"; none.textContent = "None"; sel.appendChild(none);
+  for (let i = 1; i <= Math.min(50, count); i++) {
+    const o = document.createElement("option"); o.value = String(i);
+    o.textContent = (presetsData && presetsData[i] && presetsData[i].name) ? i + " - " + presetsData[i].name : "Scene " + i;
+    sel.appendChild(o);
+  }
+  sel.value = String(config.sermonPreset || 0);
+}
 function fillSettingsForm() {
   $("#ip").value = config.ip;
   $("#user").value = config.user;
@@ -620,6 +634,7 @@ function fillSettingsForm() {
   $("#pass").placeholder = config.hasPass ? "Saved (leave blank to keep)" : "";
   $("#sceneCount").value = config.sceneCount || 30;
   renderVideoPicker(config.videoDevice);
+  fillSermonPicker();
   $("#pageZoom").value = config.pageZoom || 100;
   $("#pageZoomLabel").textContent = (config.pageZoom || 100) + "%";
   $("#endEnabled").checked = config.endEnabled;
@@ -642,6 +657,7 @@ async function saveSettings() {
     endEnabled: $("#endEnabled").checked,
     endSteps: steps,
     videoDevice: parseInt($("#videoDevice").value, 10),
+    sermonPreset: parseInt($("#sermonPreset").value, 10) || 0,
   };
   try {
     await postJSON("/api/settings", payload);

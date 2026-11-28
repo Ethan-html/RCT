@@ -426,6 +426,11 @@ class Engine:
                 self._event(f"{reason}: went to preset {preset}")
             else:
                 self._event(f"{reason}: camera is on preset {preset}")
+            if self.env.get("on_preset"):
+                try:
+                    self.env["on_preset"](preset)  # lets Redcast know (sermon scene start / end)
+                except Exception:
+                    pass
             pos = self._wait_stable()
             with self.lock:
                 if pos:
@@ -864,7 +869,7 @@ ENGINE = None
 
 
 def init(app, resource_dir, data_dir, camera_get, get_settings, load_json, save_json, camera_errors=(),
-         settings_file=None):
+         settings_file=None, on_preset=None):
     """Register the /tracker page and the tracking + video-input routes on the Flask app."""
     global ENGINE
     ENGINE = Engine({
@@ -873,6 +878,7 @@ def init(app, resource_dir, data_dir, camera_get, get_settings, load_json, save_
         "get_settings": get_settings,
         "load_json": load_json,
         "save_json": save_json,
+        "on_preset": on_preset,
     })
     eng = ENGINE
 

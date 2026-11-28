@@ -745,6 +745,84 @@ $('btnTech').onclick = () => {
   if (techActive) { endTech(true); log('TECH ERROR ended'); }
   else { techActive = true; techNow(); applyMute(); log('TECH ERROR (audio cut)'); }
 };
+// Remote control page (local network only, PIN): the page asks for a small picture of the Output, and presses things for you.
+// Everything it does goes straight to the Output, the same as the matching button here.
+{
+  const snap = document.createElement('canvas'); snap.width = 640; snap.height = 360;
+  window.api.on('remote:snap', (m) => {
+    let d = null;
+    try { snap.getContext('2d').drawImage($('liveCanvas'), 0, 0, 640, 360); d = snap.toDataURL('image/jpeg', 0.6); } catch (e) { /* send nothing */ }
+    window.api.remoteReply(m.id, d);
+  });
+  const CARDS = ['welcome', 'thanks', 'countdown', 'service', 'follow', 'give'];
+  const say = (t) => ({ ok: false, error: t });
+  const OPS = {
+    state: () => ({
+      ok: true, tech: !!techActive, minutes: Number($('cardMinutes').value) || 5,
+      service: !$('qcService').hidden, give: !$('qcGive').hidden,
+      clips: clips.filter((c) => c.ready && !c.bad).map((c) => ({ id: c.id, name: c.name, kind: c.kind })),
+    }),
+    clear: () => { $('btnClear').click(); return { ok: true }; },
+    tech: () => { $('btnTech').click(); return { ok: true, tech: !!techActive }; },
+    card: (a) => {
+      const kind = String(a.kind || '');
+      if (!CARDS.includes(kind)) return say('Unknown card.');
+      if (kind === 'service' && !String(cardCfg.serviceTime || '').trim()) return say('Set the service start time in Settings first.');
+      if (kind === 'give' && !String(cardCfg.giveUrl || '').trim()) return say('Set the Give link in Settings first.');
+      const f = cardFields(kind);
+      if (kind === 'countdown') f.minutes = Math.max(1, Math.min(120, Math.round(Number(a.minutes) || f.minutes)));
+      endTech(false); showCardNow(f); log('REMOTE card: ' + kind);
+      return { ok: true };
+    },
+    message: (a) => {
+      const big = String(a.a || '').trim().slice(0, 120), small = String(a.b || '').trim().slice(0, 120);
+      if (!big) return say('Type the big line first.');
+      endTech(false);
+      if (a.type === 'slide') sendItemNow(addName(big, small)); else showCardNow({ slot: 'message', kind: 'message', a: big, b: small });
+      log('REMOTE message'); return { ok: true };
+    },
+    verse: async (a) => {
+      const ref = String(a.ref || '').trim().slice(0, 80), trans = ['kjv', 'web', 'asv', 'bbe'].includes(a.trans) ? a.trans : 'kjv';
+      if (!ref) return say('Type a verse first.');
+      const r = await window.api.bibleFetch(ref, trans);
+      if (!r || !r.ok) return say((r && r.error) || 'Could not find that verse.');
+      const d = r.data || r; // the answer may come wrapped
+      const text = d.text, label = d.reference || ref, tr = d.translation || trans.toUpperCase();
+      if (!text) return say('Could not find that verse.');
+      endTech(false);
+      if (liveHasVerse()) followLiveVerse(label, text, tr);
+      else { addVerse(label, text, tr); const it = preview.items.find((i) => i.type === 'verse'); if (it) sendItemNow(it); }
+      log('REMOTE verse: ' + label); return { ok: true };
+    },
+    play: (a) => {
+      const c = clipById(Number(a.id));
+      if (!c || !c.ready || c.bad) return say('That file is not ready.');
+      endTech(false);
+      if (c.kind === 'video') { playTarget('stream', c.id); }
+      else { selectClip(c.id); goLive(); }
+      log('REMOTE play: ' + c.name); return { ok: true };
+    },
+    stopvideo: () => { stopPlayback(); return { ok: true }; },
+  };
+  window.api.on('remote:call', async (m) => {
+    let out;
+    try { out = OPS[m.op] ? await OPS[m.op](m.args || {}) : say('Unknown button.'); }
+    catch (e) { out = say('That did not work: ' + e.message); }
+    window.api.remoteReply(m.id, out);
+  });
+  // The PIN lives in Settings (Troubleshooting). A new one is made the first time, and the page is told whenever it changes.
+  const pinBox = () => $('remotePin');
+  let remotePin = ''; try { remotePin = localStorage.getItem('remotePin') || ''; } catch (e) { /* ignore */ }
+  if (!/^\d{4}$/.test(remotePin)) { remotePin = String(1000 + Math.floor(Math.random() * 9000)); try { localStorage.setItem('remotePin', remotePin); } catch (e) { /* ignore */ } }
+  window.api.remoteSetPin(remotePin);
+  if (pinBox()) {
+    pinBox().value = remotePin;
+    pinBox().oninput = () => {
+      const v = pinBox().value.replace(/\D/g, '').slice(0, 4); pinBox().value = v;
+      if (/^\d{4}$/.test(v)) { remotePin = v; try { localStorage.setItem('remotePin', v); } catch (e) { /* ignore */ } window.api.remoteSetPin(v); }
+    };
+  }
+}
 attachPreviewMouse(previewCanvas);
 
 document.addEventListener('keydown', (e) => {
@@ -1270,6 +1348,14 @@ function checkAutoHide() {
     hideTimers[it.id] = setTimeout(() => { delete hideTimers[it.id]; if (live.items.some((i) => i.id === it.id)) removeLiveItem(it.id); }, lookOfItem(it).autoHide * 1000);
   });
 }
+
+// When a Countdown or Until-service-starts card reaches zero, clear everything and leave only the camera. No operator action.
+function checkCountdownZero() {
+  const cd = live.items.find((it) => it.type === 'card' && it.kind === 'countdown');
+  if (!cd || !countdownText(cd).over) return;
+  endTech(false); stopOnClear(); clearAll(); log('Countdown reached zero: camera only');
+}
+setInterval(checkCountdownZero, 500);
 
 // ---------- sound when a video plays on the stream ----------
 function applyAudioMode() {
@@ -2097,6 +2183,13 @@ $('outMode').addEventListener('change', () => { if (!streaming) $('btnStream').t
 // ---------- streaming ----------
 let recorder = null, outStream = null, chain = Promise.resolve();
 let streaming = false, userStopped = false, streamStart = 0, samples = [], lastRecording = '';
+// Getting the stream back by itself: after a dropped connection, or after the app restarts mid-stream.
+let rc = null, lastStreamOpts = null, recSegments = []; // recSegments = the recording pieces of this stream, joined when it ends // rc = { tries, okAt, timer, waiting } while a live stream is being kept alive
+const RECONNECT_TRIES = 36, RECONNECT_WAIT = 5000, RESUME_KEY = 'resumeStream', RESUME_MAX_AGE = 3 * 60 * 1000;
+const rememberSession = () => { try { localStorage.setItem(RESUME_KEY, JSON.stringify({ ts: Date.now(), dest: currentDest, opts: lastStreamOpts, broadcast: currentBroadcast, segments: recSegments })); } catch (e) { /* ignore */ } };
+const forgetSession = () => { try { localStorage.removeItem(RESUME_KEY); } catch (e) { /* ignore */ } };
+setInterval(() => { if (streaming && lastStreamOpts) rememberSession(); }, 10000); // so a restart can tell the stream was running a moment ago
+window.addEventListener('beforeunload', () => { forgetSession(); if (window.flushStore) window.flushStore(); }); // a normal close never resumes
 let latestMetrics = { cpu: 0, ff: {} };
 
 function pickMime() {
@@ -2177,12 +2270,13 @@ async function beginStream() {
   }
   const r = await window.api.startStream(o);
   if (!r.ok) { banner('Could not start: ' + r.error); if (currentBroadcast) window.api.ytEnd(currentBroadcast.broadcastId); return; }
-  lastRecording = r.recording || '';
+  lastRecording = r.recording || ''; recSegments = r.recording ? [r.recording] : []; lastStreamOpts = Object.assign({}, o, { folder: r.folder || '' }); rc = { tries: 0, okAt: Date.now(), timer: null, waiting: false };
   log(`ffmpeg started (${r.encoder}) -> ${r.display}${r.recording ? ' + recording ' + r.recording : ''}`);
   startRecorder(o);
+  rememberSession();
 }
 
-function startRecorder(o) {
+function startRecorder(o, resume) {
   outStream = liveCanvas.captureStream(o.fps);
   streamAudio = ensureMixer().streamDest.stream.getAudioTracks()[0].clone();
   outStream.addTrack(streamAudio);
@@ -2199,27 +2293,75 @@ function startRecorder(o) {
     streamAudio = null;
   };
   recorder.start(200);
-  streaming = true; userStopped = false; streamStart = Date.now(); samples = []; longFramesTotal = 0;
+  streaming = true; userStopped = false;
+  if (!resume) { streamStart = Date.now(); samples = []; longFramesTotal = 0; }
   liveCanvas.classList.add('onair');
   const b = $('btnStream'); b.textContent = stopText(); b.classList.add('stop'); updateLiveStats();
-  $('summary').textContent = recordOnly() ? 'Recording...' : 'Stream running...';
+  if (!resume) $('summary').textContent = recordOnly() ? 'Recording...' : 'Stream running...';
 }
 
 $('btnStream').onclick = () => {
   if (!streaming) { requestStart(); return; }
   showModal(currentDest === 'record' ? 'Stop recording?' : 'Stop the stream?', currentDest === 'record' ? '<p>The recording will be saved.</p>' : '<p>Viewers will see the stream end.</p>', [
     { label: currentDest === 'record' ? 'Keep recording' : 'Keep streaming', cls: 'ghost' },
-    { label: currentDest === 'record' ? 'STOP RECORDING' : 'STOP STREAM', cls: 'primary', onClick: () => { userStopped = true; if (recorder && recorder.state !== 'inactive') recorder.stop(); } },
+    { label: currentDest === 'record' ? 'STOP RECORDING' : 'STOP STREAM', cls: 'primary', onClick: () => { userStopped = true; if (rc && rc.waiting) { clearTimeout(rc.timer); finalizeEnd({ code: 0 }); } else if (recorder && recorder.state !== 'inactive') recorder.stop(); } },
   ]);
 };
 
+// The connection dropped: quietly try again every few seconds, with the same address and key, and only speak up if it cannot be done.
+const canReconnect = () => streaming && !userStopped && lastStreamOpts && (currentDest === 'youtube' || currentDest === 'rtmp');
+function quietReconnect(e) {
+  if (!rc) rc = { tries: 0, okAt: 0, timer: null, waiting: false };
+  if (rc.okAt && Date.now() - rc.okAt > 30000) rc.tries = 0; // it had been healthy for a while, so this is a fresh drop
+  if (rc.tries >= RECONNECT_TRIES) { finalizeEnd(e); return; }
+  rc.tries++; rc.waiting = true; rc.okAt = 0;
+  if (rc.tries === 1) log(`Stream connection lost (code ${e.code}${e.error ? ', ' + e.error : ''}). Trying to reconnect.`);
+  if (recorder && recorder.state !== 'inactive') { try { recorder.stop(); } catch (err) { /* ignore */ } }
+  $('streamStatus').textContent = 'Connection lost. Reconnecting...';
+  clearTimeout(rc.timer);
+  rc.timer = setTimeout(tryReconnect, RECONNECT_WAIT);
+}
+async function tryReconnect() {
+  if (!rc || !rc.waiting) return;
+  const r = await window.api.startStream(lastStreamOpts);
+  if (!streaming || userStopped) { if (r.ok) window.api.stopStream(); return; } // the operator stopped it meanwhile
+  if (!r.ok) { quietReconnect({ code: null, error: r.error }); return; }
+  lastRecording = r.recording || lastRecording; if (r.recording) recSegments.push(r.recording);
+  rc.waiting = false; rc.okAt = Date.now();
+  $('streamStatus').textContent = '';
+  log('Stream reconnected.');
+  startRecorder(lastStreamOpts, true);
+}
+// After the app restarted in the middle of a stream (within a few minutes), go live again with the same broadcast, no questions asked.
+async function resumeAfterRestart() {
+  let rec = null;
+  try { rec = JSON.parse(localStorage.getItem(RESUME_KEY)); } catch (e) { /* ignore */ }
+  forgetSession();
+  if (!rec || !rec.opts || !(rec.dest === 'youtube' || rec.dest === 'rtmp') || Date.now() - rec.ts > RESUME_MAX_AGE || !videoReady) return false;
+  currentDest = rec.dest; currentBroadcast = rec.broadcast || null; lastStreamOpts = rec.opts;
+  const r = await window.api.startStream(lastStreamOpts);
+  if (!r.ok) return false;
+  lastRecording = r.recording || ''; recSegments = [...(Array.isArray(rec.segments) ? rec.segments : []), ...(r.recording ? [r.recording] : [])]; rc = { tries: 0, okAt: Date.now(), timer: null, waiting: false };
+  log('Stream resumed after the app restarted.');
+  startRecorder(lastStreamOpts);
+  rememberSession();
+  return true;
+}
+
 window.api.on('stream:ended', (e) => {
+  if (canReconnect()) { quietReconnect(e); return; }
+  finalizeEnd(e);
+});
+function finalizeEnd(e) {
+  if (rc) { clearTimeout(rc.timer); rc = null; }
+  forgetSession();
   const was = streaming;
   streaming = false;
   liveCanvas.classList.remove('onair');
   const b = $('btnStream'); b.textContent = startText(); b.classList.remove('stop'); updateLiveStats();
   if (recorder && recorder.state !== 'inactive') { try { recorder.stop(); } catch (err) { /* ignore */ } }
   if (!was) return;
+  if (recSegments.length) { const parts = recSegments; recSegments = []; setTimeout(() => window.api.finishRecording(parts), 3000); } // join the pieces if there are several, and cut the sermon out
   if (currentBroadcast) { window.api.ytEnd(currentBroadcast.broadcastId); }
   if (userStopped) $('streamStatus').textContent = currentDest === 'record' ? 'Recording saved: ' + lastRecording : 'Stream ended.' + (lastRecording ? ' Backup recording saved.' : '');
   else {
@@ -2227,7 +2369,7 @@ window.api.on('stream:ended', (e) => {
     banner(currentDest === 'record' ? 'The recording stopped unexpectedly. What was recorded so far should be saved. Check the disk space, then press START RECORDING again.' : 'The stream stopped unexpectedly. Check the internet and the stream key, then press START STREAM again. A backup recording may have been saved.');
   }
   showSummary();
-});
+}
 window.api.on('ffmpeg:log', (line) => log('ffmpeg: ' + line));
 
 // ---------- metrics, stats, summary ----------
@@ -2239,7 +2381,7 @@ window.api.on('metrics', (m) => {
     samples.push({ t: elapsed, cpu: m.cpu, fps: ff.fps, speed: ff.speed, drop: ff.drop, frame: ff.frame, queued: ff.queued });
     // No live status text under the stream button while streaming (it flashed "Starting / trouble" for the first minute).
     // Health is still shown in the top bar and the status pill.
-    if ($('streamStatus').textContent) $('streamStatus').textContent = '';
+    if ($('streamStatus').textContent && !(rc && rc.waiting)) $('streamStatus').textContent = '';
   }
   updatePills(); updateLiveStats();
   if (view !== 'Settings' || settingsPage !== 'status') return;
@@ -2324,6 +2466,7 @@ $('btnYtClient').onclick = async () => {
 // ---------- Settings ----------
 $('btnCamSave').onclick = saveCam;
 $('btnLogs').onclick = () => window.api.openLogs();
+window.api.remoteAddress().then((a) => { const el = $('remoteInfo'); if (el) el.textContent = a ? 'Remote page for a phone or tablet on the same network: ' + a : ''; });
 
 // ---------- start up ----------
 // Each step tells the launcher how far along it is, so its loading window can show a real progress bar.
@@ -2365,7 +2508,9 @@ function loadCamUI() { // puts the saved Camera & sound settings on the page
   $('btnStream').textContent = startText();
   updateTitlePreview();
   $('logDir').textContent = 'Logs are saved in: ' + (await window.api.logDir());
-  if (await window.api.recovered()) banner('The app restarted after a problem. If you were streaming, press START STREAM to go live again.');
+  const wasRecovered = await window.api.recovered();
+  const resumed = await resumeAfterRestart();
+  if (!resumed && wasRecovered) banner('The app restarted after a problem. If you were streaming, press START STREAM to go live again.');
   if (!camSaved) { openSettings('cam'); } // first run: guide the person to choose the camera
   refreshMainUI();
   updatePills();
